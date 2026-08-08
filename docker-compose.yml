@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  node1:
+    build: .
+    # Montiamo la cartella locale dentro il container
+    volumes:
+      - ./configs:/app/configs
+    # Passiamo il flag per indicare quale configurazione leggere
+    command: ["-config", "/app/configs/node1.yaml"]
+
+  node2:
+    build: .
+    volumes:
+      - ./configs:/app/configs
+    command: ["-config", "/app/configs/node2.yaml"]
+
+  node3:
+    build: .
+    volumes:
+      - ./configs:/app/configs
+    command: ["-config", "/app/configs/node3.yaml"]
