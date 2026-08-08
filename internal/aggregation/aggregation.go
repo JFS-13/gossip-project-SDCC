@@ -1,42 +1,70 @@
 package aggregation
 
-// Aggregator definisce il contratto che ogni funzione di aggregazione deve rispettare.
-// Questo ci permette di aggiungere nuove funzioni in futuro (es. Somma, Top-K) senza modificare il motore di Gossip.
+import "math"
+
+const (
+	IdempotentFamily       = "IDEMPOTENT"
+	MassConservationFamily = "MASS_CONSERVATION"
+)
+
+// Interfaccia aggiornata: ora l'aggregatore sa anche come estrarre il risultato finale!
 type Aggregator interface {
-	Aggregate(localValue float64, receivedValue float64) float64
 	Name() string
+	Family() string
+	Aggregate(localVal, localWeight, recvVal, recvWeight float64) (float64, float64)
+	GetResult(val, weight float64) float64 // <- NUOVO METODO
 }
 
-// ==========================================
-// IMPLEMENTAZIONE 1: AVERAGE (Media)
-// ==========================================
-
-type AverageAggregator struct{}
-
-// Aggregate esegue il pair-wise averaging (Push-Pull)
-func (a AverageAggregator) Aggregate(localValue float64, receivedValue float64) float64 {
-	// Formula matematica per la conservazione della massa nella media
-	return (localValue + receivedValue) / 2.0
-}
-
-func (a AverageAggregator) Name() string {
-	return "AVERAGE"
-}
-
-// ==========================================
-// IMPLEMENTAZIONE 2: MAX (Massimo)
-// ==========================================
-
+// === 1. MAX ===
 type MaxAggregator struct{}
 
-// Aggregate tiene traccia del valore più alto visto nella rete
-func (m MaxAggregator) Aggregate(localValue float64, receivedValue float64) float64 {
-	if receivedValue > localValue {
-		return receivedValue
+func (a MaxAggregator) Name() string   { return "MAX" }
+func (a MaxAggregator) Family() string { return IdempotentFamily }
+func (a MaxAggregator) Aggregate(localVal, localWeight, recvVal, recvWeight float64) (float64, float64) {
+	return math.Max(localVal, recvVal), localWeight
+}
+func (a MaxAggregator) GetResult(val, weight float64) float64 { return val }
+
+// === 2. MIN ===
+type MinAggregator struct{}
+
+func (a MinAggregator) Name() string   { return "MIN" }
+func (a MinAggregator) Family() string { return IdempotentFamily }
+func (a MinAggregator) Aggregate(localVal, localWeight, recvVal, recvWeight float64) (float64, float64) {
+	return math.Min(localVal, recvVal), localWeight
+}
+func (a MinAggregator) GetResult(val, weight float64) float64 { return val }
+
+// === 3. AVERAGE ===
+type AverageAggregator struct{}
+
+func (a AverageAggregator) Name() string   { return "AVERAGE" }
+func (a AverageAggregator) Family() string { return MassConservationFamily }
+func (a AverageAggregator) Aggregate(localVal, localWeight, recvVal, recvWeight float64) (float64, float64) {
+	return localVal + recvVal, localWeight + recvWeight
+}
+func (a AverageAggregator) GetResult(val, weight float64) float64 {
+	if weight > 0 {
+		return val / weight
 	}
-	return localValue
+	return val
 }
 
-func (m MaxAggregator) Name() string {
-	return "MAX"
+// === 4. SUM (LA NOVITÀ) ===
+type SumAggregator struct {
+	TotalNodes int // La somma ha bisogno di sapere quanti nodi ci sono
+}
+
+func (a SumAggregator) Name() string   { return "SUM" }
+func (a SumAggregator) Family() string { return MassConservationFamily }
+func (a SumAggregator) Aggregate(localVal, localWeight, recvVal, recvWeight float64) (float64, float64) {
+	// Sotto il cofano si comporta esattamente come la media (conserva la massa)
+	return localVal + recvVal, localWeight + recvWeight
+}
+func (a SumAggregator) GetResult(val, weight float64) float64 {
+	// Il trucco magico: Media * N
+	if weight > 0 {
+		return (val / weight) * float64(a.TotalNodes)
+	}
+	return val
 }
