@@ -1,37 +1,40 @@
 # ==========================================
 # STAGE 1: Build dell'eseguibile
 # ==========================================
-# Usiamo l'immagine ufficiale di Go basata su Alpine (molto leggera)
 FROM golang:1.26-alpine AS builder
 
-# Impostiamo la cartella di lavoro dentro il container
 WORKDIR /app
 
-# Copiamo i file delle dipendenze per scaricarle (sfruttiamo la cache di Docker)
+# Copia manifest dipendenze (sfrutta la cache Docker)
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copiamo tutto il resto del codice sorgente
-COPY . .
+# Copia il codice sorgente
+COPY cmd ./cmd
+COPY internal ./internal
 
-# Compiliamo l'applicazione creando l'eseguibile chiamato "gossip-node"
-# Disabilitiamo CGO per avere un binario statico completamente indipendente
-RUN CGO_ENABLED=0 GOOS=linux go build -o /gossip-node ./cmd/node/main.go
+# Compila il binario statico
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags='-s -w' \
+    -o /gossip-agent \
+    ./cmd/agent/main.go
 
 # ==========================================
-# STAGE 2: Creazione dell'immagine finale
+# STAGE 2: Immagine runtime minimale
 # ==========================================
-# Usiamo un'immagine vuota e leggerissima per eseguire il binario
 FROM alpine:latest
 
 WORKDIR /app
 
-# Copiamo l'eseguibile compilato dallo STAGE 1
-COPY --from=builder /gossip-node /app/gossip-node
+# Copia il binario compilato
+COPY --from=builder /gossip-agent /app/gossip-agent
 
-# Dichiariamo che l'applicazione userà la porta 8000 (a scopo informativo)
-EXPOSE 8000
+# Porta gossip UDP
+EXPOSE 7001
 
-# Punto di ingresso: esegue il nodo passando il percorso della configurazione
-# (Il percorso esatto del file YAML verrà passato tramite Docker Compose in seguito)
-ENTRYPOINT ["/app/gossip-node"]
+# Porta metrics HTTP (node_port + 1000)
+EXPOSE 8001
+
+ENTRYPOINT ["/app/gossip-agent"]
+CMD ["--config", "/app/configs/config.yaml"]

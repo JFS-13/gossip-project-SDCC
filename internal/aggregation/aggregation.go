@@ -1,70 +1,42 @@
 package aggregation
 
-import "math"
-
-const (
-	IdempotentFamily       = "IDEMPOTENT"
-	MassConservationFamily = "MASS_CONSERVATION"
+import (
+	"fmt"
+	"gossip-project/internal/message"
 )
 
-// Interfaccia aggiornata: ora l'aggregatore sa anche come estrarre il risultato finale!
+// Aggregator definisce il contratto per le aggregazioni supportate.
+// Ogni aggregatore sa come:
+//   - Impostare il contributo di un nodo (SetContribution)
+//   - Calcolare il risultato dall'insieme dei contributi (ComputeResult)
 type Aggregator interface {
-	Name() string
-	Family() string
-	Aggregate(localVal, localWeight, recvVal, recvWeight float64) (float64, float64)
-	GetResult(val, weight float64) float64 // <- NUOVO METODO
+	Type() string
+	SetContribution(state *message.AggregationState, nodeID message.NodeID, value float64)
+	ComputeResult(state *message.AggregationState) float64
 }
 
-// === 1. MAX ===
-type MaxAggregator struct{}
-
-func (a MaxAggregator) Name() string   { return "MAX" }
-func (a MaxAggregator) Family() string { return IdempotentFamily }
-func (a MaxAggregator) Aggregate(localVal, localWeight, recvVal, recvWeight float64) (float64, float64) {
-	return math.Max(localVal, recvVal), localWeight
-}
-func (a MaxAggregator) GetResult(val, weight float64) float64 { return val }
-
-// === 2. MIN ===
-type MinAggregator struct{}
-
-func (a MinAggregator) Name() string   { return "MIN" }
-func (a MinAggregator) Family() string { return IdempotentFamily }
-func (a MinAggregator) Aggregate(localVal, localWeight, recvVal, recvWeight float64) (float64, float64) {
-	return math.Min(localVal, recvVal), localWeight
-}
-func (a MinAggregator) GetResult(val, weight float64) float64 { return val }
-
-// === 3. AVERAGE ===
-type AverageAggregator struct{}
-
-func (a AverageAggregator) Name() string   { return "AVERAGE" }
-func (a AverageAggregator) Family() string { return MassConservationFamily }
-func (a AverageAggregator) Aggregate(localVal, localWeight, recvVal, recvWeight float64) (float64, float64) {
-	return localVal + recvVal, localWeight + recvWeight
-}
-func (a AverageAggregator) GetResult(val, weight float64) float64 {
-	if weight > 0 {
-		return val / weight
+// Factory crea un'implementazione di Aggregator in base al tipo richiesto.
+func Factory(kind string) (Aggregator, error) {
+	switch kind {
+	case "sum":
+		return &SumAggregator{}, nil
+	case "average":
+		return &AverageAggregator{}, nil
+	case "min":
+		return &MinAggregator{}, nil
+	case "max":
+		return &MaxAggregator{}, nil
+	case "topk":
+		return &TopKAggregator{K: 5}, nil // Default K=5
+	default:
+		return nil, fmt.Errorf("aggregazione non supportata: %s", kind)
 	}
-	return val
 }
 
-// === 4. SUM (LA NOVITÀ) ===
-type SumAggregator struct {
-	TotalNodes int // La somma ha bisogno di sapere quanti nodi ci sono
-}
-
-func (a SumAggregator) Name() string   { return "SUM" }
-func (a SumAggregator) Family() string { return MassConservationFamily }
-func (a SumAggregator) Aggregate(localVal, localWeight, recvVal, recvWeight float64) (float64, float64) {
-	// Sotto il cofano si comporta esattamente come la media (conserva la massa)
-	return localVal + recvVal, localWeight + recvWeight
-}
-func (a SumAggregator) GetResult(val, weight float64) float64 {
-	// Il trucco magico: Media * N
-	if weight > 0 {
-		return (val / weight) * float64(a.TotalNodes)
+// NewTopK creates a TopKAggregator with a specific K value.
+func NewTopK(k int) *TopKAggregator {
+	if k < 1 {
+		k = 5
 	}
-	return val
+	return &TopKAggregator{K: k}
 }
