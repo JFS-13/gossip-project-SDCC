@@ -1,22 +1,101 @@
 version: '3.8'
 
+# Configurazione base condivisa da tutti i nodi
+x-node-base: &node-base
+  build: .
+  image: gossip-agent:local
+  restart: unless-stopped
+  networks:
+    - gossip-net
+
 services:
   node1:
-    build: .
-    # Montiamo la cartella locale dentro il container
+    <<: *node-base
+    container_name: gossip-node1
     volumes:
-      - ./configs:/app/configs
-    # Passiamo il flag per indicare quale configurazione leggere
-    command: ["-config", "/app/configs/node1.yaml"]
+      - ./configs:/app/configs:ro
+    command: ["--config", "/app/configs/node1.yaml"]
+    ports:
+      - "8001:8001"   # metrics HTTP
 
   node2:
-    build: .
+    <<: *node-base
+    container_name: gossip-node2
     volumes:
-      - ./configs:/app/configs
-    command: ["-config", "/app/configs/node2.yaml"]
+      - ./configs:/app/configs:ro
+    command: ["--config", "/app/configs/node2.yaml"]
+    ports:
+      - "8002:8002"   # metrics HTTP
+    depends_on:
+      - node1
 
   node3:
-    build: .
+    <<: *node-base
+    container_name: gossip-node3
     volumes:
-      - ./configs:/app/configs
-    command: ["-config", "/app/configs/node3.yaml"]
+      - ./configs:/app/configs:ro
+    command: ["--config", "/app/configs/node3.yaml"]
+    ports:
+      - "8003:8003"   # metrics HTTP
+    depends_on:
+      - node1
+
+  node4:
+    <<: *node-base
+    container_name: gossip-node4
+    volumes:
+      - ./configs:/app/configs:ro
+    command: ["--config", "/app/configs/node4.yaml"]
+    ports:
+      - "8004:8004"   # metrics HTTP
+    depends_on:
+      - node1
+
+  node5:
+    <<: *node-base
+    container_name: gossip-node5
+    volumes:
+      - ./configs:/app/configs:ro
+    command: ["--config", "/app/configs/node5.yaml"]
+    ports:
+      - "8005:8005"   # metrics HTTP
+    depends_on:
+      - node1
+
+  node6:
+    <<: *node-base
+    container_name: gossip-node6
+    volumes:
+      - ./configs:/app/configs:ro
+    command: ["--config", "/app/configs/node6.yaml"]
+    ports:
+      - "8006:8006"   # metrics HTTP
+    depends_on:
+      - node1
+
+  node7:
+    <<: *node-base
+    container_name: gossip-node7
+    volumes:
+      - ./configs:/app/configs:ro
+    command: ["--config", "/app/configs/node7.yaml"]
+    ports:
+      - "8007:8007"   # metrics HTTP
+    depends_on:
+      - node1
+
+  node8:
+    <<: *node-base
+    container_name: gossip-node8
+    volumes:
+      - ./configs:/app/configs:ro
+    command: ["--config", "/app/configs/node8.yaml"]
+    ports:
+      - "8008:8008"   # metrics HTTP
+    depends_on:
+      - node1
+
+networks:
+  gossip-net:
+    name: gossip-net
+    driver: bridge

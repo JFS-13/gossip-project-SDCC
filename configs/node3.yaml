@@ -1,7 +1,14 @@
 node_id: "node-3"
-listen_address: "0.0.0.0:8000"
+bind_address: "0.0.0.0"
+advertise_addr: "node3"
+node_port: 7003
+seed_peers:
+  - "node1:7001"
+  - "node2:7002"
 gossip_interval_ms: 1000
-aggregation_type: "SUM"
-peers:
-  - "node1:8000"
-  - "node2:8000"
+fanout: 2
+membership_timeout_ms: 10000
+aggregation_type: "topk"
+initial_value: 50.0
+top_k_size: 3
+log_level: "info"
