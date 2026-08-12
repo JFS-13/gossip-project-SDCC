@@ -1,0 +1,15 @@
+node_id: "node-8"
+bind_address: "0.0.0.0"
+advertise_addr: "node8"
+node_port: 7008
+seed_peers:
+  - "node5:7005"
+  - "node7:7007"
+  - "node1:7001" # Chiude l'anello
+gossip_interval_ms: 1000
+fanout: 2
+membership_timeout_ms: 10000
+aggregation_type: "topk"
+initial_value: 80.0
+top_k_size: 3
+log_level: "info"

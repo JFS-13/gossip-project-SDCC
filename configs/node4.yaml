@@ -1,0 +1,14 @@
+node_id: "node-4"
+bind_address: "0.0.0.0"
+advertise_addr: "node4"
+node_port: 7004
+seed_peers:
+  - "node1:7001"
+  - "node3:7003"
+gossip_interval_ms: 1000
+fanout: 2
+membership_timeout_ms: 10000
+aggregation_type: "topk"
+initial_value: 20.0
+top_k_size: 3
+log_level: "info"
