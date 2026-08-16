@@ -27,13 +27,16 @@ func (a *AverageAggregator) SetContribution(state *message.AggregationState, nod
 	}
 }
 
-func (a *AverageAggregator) ComputeResult(state *message.AggregationState) float64 {
+func (a *AverageAggregator) ComputeResult(state *message.AggregationState, aliveNodes map[message.NodeID]bool) float64 {
 	if state == nil || state.Contributions == nil {
 		return 0
 	}
 	var totalSum float64
 	var totalCount uint64
-	for _, contrib := range state.Contributions {
+	for nodeID, contrib := range state.Contributions {
+		if !aliveNodes[nodeID] {
+			continue // Escludi i nodi morti
+		}
 		totalSum += contrib.Sum
 		totalCount += contrib.Count
 	}

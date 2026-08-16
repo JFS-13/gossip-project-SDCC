@@ -24,7 +24,7 @@ type Transport interface {
 // Sarà implementata dal package internal/aggregation.
 type Aggregator interface {
 	Type() string
-	ComputeResult(state *message.AggregationState) float64
+	ComputeResult(state *message.AggregationState, aliveNodes map[message.NodeID]bool) float64
 	SetContribution(state *message.AggregationState, nodeID message.NodeID, value float64)
 }
 
@@ -167,7 +167,13 @@ func (e *Engine) executeRound(ctx context.Context) {
 	}
 
 	// 7. Ricalcola la stima dopo l'invio
-	estimate := e.aggregator.ComputeResult(&aggState)
+	aliveNodes := make(map[message.NodeID]bool)
+	for _, entry := range membershipEntries {
+		if entry.Status == "alive" || entry.Status == "suspect" {
+			aliveNodes[entry.NodeID] = true
+		}
+	}
+	estimate := e.aggregator.ComputeResult(&aggState, aliveNodes)
 	e.State.SetEstimate(estimate)
 }
 
@@ -191,7 +197,14 @@ func (e *Engine) handleMessage(ctx context.Context, payload []byte) error {
 
 	// 4. Ricalcola la stima
 	aggState := e.State.Snapshot()
-	estimate := e.aggregator.ComputeResult(&aggState)
+	membershipEntries := e.membership.SnapshotEntries()
+	aliveNodes := make(map[message.NodeID]bool)
+	for _, entry := range membershipEntries {
+		if entry.Status == "alive" || entry.Status == "suspect" {
+			aliveNodes[entry.NodeID] = true
+		}
+	}
+	estimate := e.aggregator.ComputeResult(&aggState, aliveNodes)
 	e.State.SetEstimate(estimate)
 
 	// 5. Logga il risultato del merge
@@ -210,6 +223,18 @@ func (e *Engine) GetEstimate() (float64, int) {
 	estimate := e.State.GetEstimate()
 	knownNodes := e.membership.GetClusterSize()
 	return estimate, knownNodes
+}
+
+// GetAliveNodeIDs restituisce la mappa dei nodi attualmente vivi/sospetti.
+func (e *Engine) GetAliveNodeIDs() map[message.NodeID]bool {
+	entries := e.membership.SnapshotEntries()
+	alive := make(map[message.NodeID]bool)
+	for _, entry := range entries {
+		if entry.Status == "alive" || entry.Status == "suspect" {
+			alive[entry.NodeID] = true
+		}
+	}
+	return alive
 }
 
 // AnnounceLeave invia un messaggio di leave a tutti i peer noti.

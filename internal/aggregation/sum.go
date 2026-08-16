@@ -25,12 +25,15 @@ func (a *SumAggregator) SetContribution(state *message.AggregationState, nodeID 
 	}
 }
 
-func (a *SumAggregator) ComputeResult(state *message.AggregationState) float64 {
+func (a *SumAggregator) ComputeResult(state *message.AggregationState, aliveNodes map[message.NodeID]bool) float64 {
 	if state == nil || state.Contributions == nil {
 		return 0
 	}
 	var sum float64
-	for _, contrib := range state.Contributions {
+	for nodeID, contrib := range state.Contributions {
+		if !aliveNodes[nodeID] {
+			continue
+		}
 		sum += contrib.Value
 	}
 	return sum

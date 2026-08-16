@@ -29,15 +29,23 @@ func (a *MinAggregator) SetContribution(state *message.AggregationState, nodeID 
 	}
 }
 
-func (a *MinAggregator) ComputeResult(state *message.AggregationState) float64 {
+func (a *MinAggregator) ComputeResult(state *message.AggregationState, aliveNodes map[message.NodeID]bool) float64 {
 	if state == nil || len(state.Contributions) == 0 {
 		return 0
 	}
 	result := math.Inf(1) // +Inf
-	for _, contrib := range state.Contributions {
+	hasAlive := false
+	for nodeID, contrib := range state.Contributions {
+		if !aliveNodes[nodeID] {
+			continue
+		}
+		hasAlive = true
 		if contrib.Value < result {
 			result = contrib.Value
 		}
+	}
+	if !hasAlive {
+		return 0
 	}
 	return result
 }
@@ -63,15 +71,23 @@ func (a *MaxAggregator) SetContribution(state *message.AggregationState, nodeID 
 	}
 }
 
-func (a *MaxAggregator) ComputeResult(state *message.AggregationState) float64 {
+func (a *MaxAggregator) ComputeResult(state *message.AggregationState, aliveNodes map[message.NodeID]bool) float64 {
 	if state == nil || len(state.Contributions) == 0 {
 		return 0
 	}
 	result := math.Inf(-1) // -Inf
-	for _, contrib := range state.Contributions {
+	hasAlive := false
+	for nodeID, contrib := range state.Contributions {
+		if !aliveNodes[nodeID] {
+			continue
+		}
+		hasAlive = true
 		if contrib.Value > result {
 			result = contrib.Value
 		}
+	}
+	if !hasAlive {
+		return 0
 	}
 	return result
 }

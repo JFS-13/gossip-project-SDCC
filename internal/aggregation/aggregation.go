@@ -12,7 +12,7 @@ import (
 type Aggregator interface {
 	Type() string
 	SetContribution(state *message.AggregationState, nodeID message.NodeID, value float64)
-	ComputeResult(state *message.AggregationState) float64
+	ComputeResult(state *message.AggregationState, aliveNodes map[message.NodeID]bool) float64
 }
 
 // Factory crea un'implementazione di Aggregator in base al tipo richiesto.

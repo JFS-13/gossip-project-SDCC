@@ -28,7 +28,7 @@ func TestSumAggregator_Convergenza(t *testing.T) {
 	agg.SetContribution(state, "node-2", 30.0)
 	agg.SetContribution(state, "node-3", 50.0)
 
-	result := agg.ComputeResult(state)
+	result := agg.ComputeResult(state, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
 	if math.Abs(result-90.0) > 1e-9 {
 		t.Errorf("SUM attesa 90.0, ottenuta %.4f", result)
 	}
@@ -46,7 +46,7 @@ func TestSumAggregator_Idempotenza(t *testing.T) {
 	agg.SetContribution(remote, "node-1", 10.0) // stessa versione
 	state.MergeCRDT(remote)
 
-	result := agg.ComputeResult(state)
+	result := agg.ComputeResult(state, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
 	if math.Abs(result-40.0) > 1e-9 {
 		t.Errorf("SUM con duplicato: attesa 40.0, ottenuta %.4f", result)
 	}
@@ -60,7 +60,7 @@ func TestSumAggregator_AggiornamentoContributo(t *testing.T) {
 	// node-1 aggiorna il suo valore: la versione aumenta
 	agg.SetContribution(state, "node-1", 20.0)
 
-	result := agg.ComputeResult(state)
+	result := agg.ComputeResult(state, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
 	if math.Abs(result-20.0) > 1e-9 {
 		t.Errorf("SUM dopo aggiornamento: attesa 20.0, ottenuta %.4f", result)
 	}
@@ -86,7 +86,7 @@ func TestAverageAggregator_Convergenza(t *testing.T) {
 	agg.SetContribution(state, "node-2", 30.0)
 	agg.SetContribution(state, "node-3", 50.0)
 
-	result := agg.ComputeResult(state)
+	result := agg.ComputeResult(state, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
 	if math.Abs(result-30.0) > 1e-9 {
 		t.Errorf("AVERAGE attesa 30.0, ottenuta %.4f", result)
 	}
@@ -96,7 +96,7 @@ func TestAverageAggregator_NessunContributo(t *testing.T) {
 	agg := &aggregation.AverageAggregator{}
 	state := &message.AggregationState{Type: "average"}
 
-	result := agg.ComputeResult(state)
+	result := agg.ComputeResult(state, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
 	if result != 0 {
 		t.Errorf("AVERAGE senza contributi: attesa 0.0, ottenuta %.4f", result)
 	}
@@ -121,7 +121,7 @@ func TestMinAggregator_Convergenza(t *testing.T) {
 	agg.SetContribution(state, "node-2", 7.0)
 	agg.SetContribution(state, "node-3", 100.0)
 
-	result := agg.ComputeResult(state)
+	result := agg.ComputeResult(state, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
 	if math.Abs(result-7.0) > 1e-9 {
 		t.Errorf("MIN attesa 7.0, ottenuta %.4f", result)
 	}
@@ -134,7 +134,7 @@ func TestMinAggregator_ValoriNegativi(t *testing.T) {
 	agg.SetContribution(state, "node-1", -5.0)
 	agg.SetContribution(state, "node-2", 3.0)
 
-	result := agg.ComputeResult(state)
+	result := agg.ComputeResult(state, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
 	if math.Abs(result-(-5.0)) > 1e-9 {
 		t.Errorf("MIN con negativi: attesa -5.0, ottenuta %.4f", result)
 	}
@@ -159,7 +159,7 @@ func TestMaxAggregator_Convergenza(t *testing.T) {
 	agg.SetContribution(state, "node-2", 7.0)
 	agg.SetContribution(state, "node-3", 100.0)
 
-	result := agg.ComputeResult(state)
+	result := agg.ComputeResult(state, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
 	if math.Abs(result-100.0) > 1e-9 {
 		t.Errorf("MAX attesa 100.0, ottenuta %.4f", result)
 	}
@@ -184,7 +184,7 @@ func TestTopKAggregator_Convergenza(t *testing.T) {
 	agg.SetTopKContribution(state, "node-2", []float64{95.0, 80.0, 60.0})
 	agg.SetTopKContribution(state, "node-3", []float64{88.0, 75.0, 65.0})
 
-	topK := agg.ComputeTopK(state)
+	topK := agg.ComputeTopK(state, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
 
 	// Top-3 atteso: [88, 90, 95]
 	if len(topK) != 3 {
@@ -213,7 +213,7 @@ func TestMergeCRDT_Idempotenza(t *testing.T) {
 
 	changed := stateA.MergeCRDT(stateA)
 	// Non deve cambiare nulla (stessa versione)
-	result := agg.ComputeResult(stateA)
+	result := agg.ComputeResult(stateA, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
 	if math.Abs(result-10.0) > 1e-9 {
 		t.Errorf("idempotenza MergeCRDT: attesa 10.0, ottenuta %.4f (changed=%v)", result, changed)
 	}
@@ -229,7 +229,7 @@ func TestMergeCRDT_PreferisceVersioneAlta(t *testing.T) {
 	agg.SetContribution(stateRemote, "node-1", 20.0) // version 2
 
 	stateLocal.MergeCRDT(stateRemote)
-	result := agg.ComputeResult(stateLocal)
+	result := agg.ComputeResult(stateLocal, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
 	if math.Abs(result-20.0) > 1e-9 {
 		t.Errorf("MergeCRDT versione alta: attesa 20.0, ottenuta %.4f", result)
 	}
@@ -244,7 +244,7 @@ func TestMergeCRDT_NuovoContributo(t *testing.T) {
 	agg.SetContribution(stateRemote, "node-2", 30.0) // nuovo nodo
 
 	stateLocal.MergeCRDT(stateRemote)
-	result := agg.ComputeResult(stateLocal)
+	result := agg.ComputeResult(stateLocal, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
 	if math.Abs(result-40.0) > 1e-9 {
 		t.Errorf("MergeCRDT nuovo nodo: attesa 40.0, ottenuta %.4f", result)
 	}

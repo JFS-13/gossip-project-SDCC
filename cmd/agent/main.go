@@ -156,7 +156,7 @@ func main() {
 				if cfg.AggregationType == "topk" {
 					topKAgg := agg.(*aggregation.TopKAggregator)
 					snap := eng.State.Snapshot()
-					topK := topKAgg.ComputeTopK(&snap)
+					topK := topKAgg.ComputeTopK(&snap, eng.GetAliveNodeIDs())
 					slog.Info("top-k elementi", "node_id", cfg.NodeID, "top_k", topK)
 				}
 			}

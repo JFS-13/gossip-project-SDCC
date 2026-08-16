@@ -75,8 +75,8 @@ func (a *TopKAggregator) SetTopKContribution(state *message.AggregationState, no
 // Unisce tutte le liste Top-K di ogni nodo, ordina e restituisce il valore
 // più alto come risultato scalare. Per ottenere la lista completa dei Top-K,
 // usare ComputeTopK.
-func (a *TopKAggregator) ComputeResult(state *message.AggregationState) float64 {
-	topK := a.ComputeTopK(state)
+func (a *TopKAggregator) ComputeResult(state *message.AggregationState, aliveNodes map[message.NodeID]bool) float64 {
+	topK := a.ComputeTopK(state, aliveNodes)
 	if len(topK) == 0 {
 		return 0
 	}
@@ -85,13 +85,16 @@ func (a *TopKAggregator) ComputeResult(state *message.AggregationState) float64 
 }
 
 // ComputeTopK restituisce la lista completa dei Top-K globali ordinata.
-func (a *TopKAggregator) ComputeTopK(state *message.AggregationState) []float64 {
+func (a *TopKAggregator) ComputeTopK(state *message.AggregationState, aliveNodes map[message.NodeID]bool) []float64 {
 	if state == nil || len(state.Contributions) == 0 {
 		return nil
 	}
 	// Unisci tutti i valori Top-K di ogni nodo
 	var all []float64
-	for _, contrib := range state.Contributions {
+	for nodeID, contrib := range state.Contributions {
+		if !aliveNodes[nodeID] {
+			continue
+		}
 		all = append(all, contrib.TopK...)
 	}
 	// Ordina e prendi i Top-K globali
