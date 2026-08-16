@@ -53,12 +53,12 @@ func NewManager(selfID message.NodeID, selfAddr string, config Config, initialPe
 		config:   config,
 	}
 
-	// Aggiunge sé stesso con incarnazione 0
+	// Aggiunge sé stesso con incarnazione basata sul timestamp (previene l'Incarnation Reset)
 	m.members[selfID] = &Member{
 		NodeID:      selfID,
 		Addr:        selfAddr,
 		Status:      StatusAlive,
-		Incarnation: 0,
+		Incarnation: uint64(time.Now().UnixNano()),
 		LastSeen:    time.Now(),
 	}
 
