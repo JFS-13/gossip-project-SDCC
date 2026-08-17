@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -144,24 +145,28 @@ func (e *Engine) executeRound(ctx context.Context) {
 		return
 	}
 
-	// 6. Determina i destinatari: membership oppure seed peers di bootstrap
+	// 6. Invia ai peer noti dalla membership
 	if len(peers) > 0 {
-		// Caso normale: invia ai peer noti dalla membership
 		for _, peer := range peers {
 			err := e.transport.Send(ctx, peer.Addr, payload)
 			if err != nil {
 				e.logger.Printf("Errore nell'invio al peer %s: %v", peer.Addr, err)
 			}
 		}
-	} else {
-		// Bootstrap: membership vuota, invia ai seed peers come fallback
+	}
+
+	// 7. Partition Healing & Bootstrap
+	// Invia periodicamente ai seed peers anche se abbiamo già dei peer (20% dei round)
+	// Questo previene scenari di "Split-Brain" dove sottogruppi isolati non si uniscono mai
+	// al cluster principale se si avviano in ordine sparso.
+	if len(peers) == 0 || rand.Float32() < 0.20 {
 		for _, seedAddr := range e.seedPeers {
 			if seedAddr == e.myAddress {
 				continue // Non inviare a sé stesso
 			}
 			err := e.transport.Send(ctx, seedAddr, payload)
 			if err != nil {
-				e.logger.Printf("Bootstrap: errore invio al seed %s: %v", seedAddr, err)
+				e.logger.Printf("Bootstrap/Healing: errore invio al seed %s: %v", seedAddr, err)
 			}
 		}
 	}
