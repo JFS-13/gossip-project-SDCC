@@ -1,5 +1,5 @@
-// Package integration contiene test di integrazione che verificano la convergenza
-// del cluster gossip e la robustezza ai crash dei nodi, usando transport in-memory.
+// Package integration contiene test di integrazione per verificare la convergenza
+// del cluster gossip e la tolleranza ai guasti utilizzando un transport in-memory.
 package integration_test
 
 import (
@@ -17,16 +17,11 @@ import (
 	"gossip-project/internal/transport"
 )
 
-// =====================================================================
-// InMemoryTransport — transport in-memory per test senza rete reale
-// =====================================================================
-
-// InMemoryBus è un bus di messaggi in-memory che collega più InMemoryTransport.
-// Permette di testare il protocollo gossip senza aprire socket UDP reali.
+// InMemoryBus gestisce il recapito dei messaggi in-memory tra i nodi di test.
 type InMemoryBus struct {
 	mu       sync.RWMutex
-	handlers map[string]transport.MessageHandler // addr → handler
-	blocked  map[string]bool                     // addr → isolato (partizione di rete)
+	handlers map[string]transport.MessageHandler
+	blocked  map[string]bool
 }
 
 func NewInMemoryBus() *InMemoryBus {
@@ -36,15 +31,12 @@ func NewInMemoryBus() *InMemoryBus {
 	}
 }
 
-// Register registra un handler per un indirizzo dato.
 func (b *InMemoryBus) Register(addr string, handler transport.MessageHandler) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.handlers[addr] = handler
 }
 
-// Send invia un payload all'indirizzo destinazione tramite il bus.
-// Se il destinatario è isolato (blocked), il messaggio viene scartato.
 func (b *InMemoryBus) Send(ctx context.Context, destAddr string, payload []byte) error {
 	b.mu.RLock()
 	handler, exists := b.handlers[destAddr]
@@ -52,30 +44,27 @@ func (b *InMemoryBus) Send(ctx context.Context, destAddr string, payload []byte)
 	b.mu.RUnlock()
 
 	if !exists || isBlocked {
-		return nil // Nodo assente o isolato: messaggio silenziosamente scartato
+		return nil
 	}
-	// Copia del payload per evitare data race
 	payloadCopy := make([]byte, len(payload))
 	copy(payloadCopy, payload)
 	go handler(ctx, payloadCopy)
 	return nil
 }
 
-// Block simula un crash o una partizione di rete per un nodo.
 func (b *InMemoryBus) Block(addr string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.blocked[addr] = true
 }
 
-// Unblock ripristina la connettività di un nodo.
 func (b *InMemoryBus) Unblock(addr string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.blocked[addr] = false
 }
 
-// InMemoryTransport implementa gossip.Transport usando il bus in-memory.
+// InMemoryTransport implementa l'interfaccia transport tramite InMemoryBus.
 type InMemoryTransport struct {
 	addr    string
 	bus     *InMemoryBus
@@ -100,10 +89,7 @@ func (t *InMemoryTransport) Close() error {
 	return nil
 }
 
-// =====================================================================
-// Helper: crea un nodo gossip completo in-memory
-// =====================================================================
-
+// TestNode aggrega le istanze necessarie per emulare un nodo completo.
 type TestNode struct {
 	ID        string
 	Addr      string
@@ -129,8 +115,6 @@ func newTestNode(
 		DeadTimeout:    4 * time.Second,
 	}
 	mset := topology.NewManager(message.NodeID(id), addr, cfg, peers)
-	// I peer verranno scoperti automaticamente via gossip piggybacking.
-	// I seed peers vengono passati all'engine come fallback di bootstrap.
 
 	var agg aggregation.Aggregator
 	var err error
@@ -149,11 +133,11 @@ func newTestNode(
 	eng := core.NewEngine(
 		message.NodeID(id),
 		addr,
-		peers, // seedPeers per il bootstrap
+		peers,
 		tr,
 		agg,
 		mset,
-		100*time.Millisecond, // intervallo veloce per i test
+		100*time.Millisecond,
 		2,
 	)
 	eng.State = state
@@ -176,23 +160,16 @@ func (n *TestNode) Start(t *testing.T) context.CancelFunc {
 	return cancel
 }
 
-// =====================================================================
-// Test M09-1: Convergenza cluster 3 nodi (AVERAGE)
-// =====================================================================
-
 func TestClusterConvergenza_Average(t *testing.T) {
 	bus := NewInMemoryBus()
-
 	peers := []string{"node1:7001", "node2:7002", "node3:7003"}
 
-	// Valori iniziali: 10, 30, 50 → media attesa = 30
 	nodes := []*TestNode{
 		newTestNode(t, "node-1", "node1:7001", 10.0, "average", bus, peers[1:]),
 		newTestNode(t, "node-2", "node2:7002", 30.0, "average", bus, []string{peers[0], peers[2]}),
 		newTestNode(t, "node-3", "node3:7003", 50.0, "average", bus, peers[:2]),
 	}
 
-	// Avvio tutti i nodi
 	cancels := make([]context.CancelFunc, len(nodes))
 	for i, n := range nodes {
 		cancels[i] = n.Start(t)
@@ -203,27 +180,20 @@ func TestClusterConvergenza_Average(t *testing.T) {
 		}
 	}()
 
-	// Attesa convergenza
 	converged := waitForConvergence(t, nodes, 30.0, 0.5, 5*time.Second)
 	if !converged {
 		for _, n := range nodes {
 			est, _ := n.Engine.GetEstimate()
-			t.Logf("  nodo %s: stima=%.4f", n.ID, est)
+			t.Logf("nodo %s: stima=%.4f", n.ID, est)
 		}
 		t.Error("cluster non ha convergito entro il timeout")
 	}
 }
 
-// =====================================================================
-// Test M09-2: Convergenza cluster 3 nodi (SUM)
-// =====================================================================
-
 func TestClusterConvergenza_Sum(t *testing.T) {
 	bus := NewInMemoryBus()
-
 	peers := []string{"node1:7001", "node2:7002", "node3:7003"}
 
-	// Valori: 10, 30, 50 → somma attesa = 90
 	nodes := []*TestNode{
 		newTestNode(t, "node-1", "node1:7001", 10.0, "sum", bus, peers[1:]),
 		newTestNode(t, "node-2", "node2:7002", 30.0, "sum", bus, []string{peers[0], peers[2]}),
@@ -244,25 +214,16 @@ func TestClusterConvergenza_Sum(t *testing.T) {
 	if !converged {
 		for _, n := range nodes {
 			est, _ := n.Engine.GetEstimate()
-			t.Logf("  nodo %s: stima=%.4f", n.ID, est)
+			t.Logf("nodo %s: stima=%.4f", n.ID, est)
 		}
 		t.Error("cluster SUM non ha convergito entro il timeout")
 	}
 }
 
-// =====================================================================
-// Test M09-3: Robustezza al crash — crash di un nodo, il cluster converge
-// =====================================================================
-
 func TestRobustezza_CrashNodo(t *testing.T) {
 	bus := NewInMemoryBus()
-
 	peers := []string{"node1:7001", "node2:7002", "node3:7003"}
 
-	// Media attesa con tutti e 3: (10+30+50)/3 = 30
-	// Dopo crash di node-3: i restanti hanno (10+30)/2 = 20 ma con CRDT
-	// mantengono il contributo di node-3 in memoria → ancora converge a 30
-	// finché non scatta il timeout (che nei test è 2s)
 	nodes := []*TestNode{
 		newTestNode(t, "node-1", "node1:7001", 10.0, "average", bus, peers[1:]),
 		newTestNode(t, "node-2", "node2:7002", 30.0, "average", bus, []string{peers[0], peers[2]}),
@@ -279,38 +240,25 @@ func TestRobustezza_CrashNodo(t *testing.T) {
 		}
 	}()
 
-	// Prima fase: verifica convergenza con tutti i nodi
 	if !waitForConvergence(t, nodes[:2], 30.0, 0.5, 4*time.Second) {
-		t.Log("convergenza pre-crash non raggiunta (atteso in test veloci)")
+		t.Log("convergenza pre-crash non raggiunta")
 	}
 
-	// CRASH: simula crash di node-3 bloccandolo sul bus
-	t.Log("→ crash simulato su node3")
 	bus.Block("node3:7003")
-	cancels[2]() // Ferma anche l'engine
+	cancels[2]()
 
-	// Dopo il crash, node-1 e node-2 continuano a girare
-	// La stima CRDT mantiene ancora il contributo di node-3 in memoria
-	// perché il CRDT non rimuove entry (failure detection è separata)
 	time.Sleep(500 * time.Millisecond)
 
-	// Verifica che node-1 e node-2 continuano a produrre stime
 	est1, _ := nodes[0].Engine.GetEstimate()
 	est2, _ := nodes[1].Engine.GetEstimate()
-	t.Logf("post-crash: node-1=%.4f, node-2=%.4f", est1, est2)
 
 	if est1 == 0 && est2 == 0 {
-		t.Error("dopo crash di node-3, node-1 e node-2 non dovrebbero avere stima 0")
+		t.Error("i nodi restanti non dovrebbero avere stima nulla")
 	}
 }
 
-// =====================================================================
-// Test M09-4: Robustezza al crash — crash e restart (rejoin)
-// =====================================================================
-
 func TestRobustezza_CrashERestart(t *testing.T) {
 	bus := NewInMemoryBus()
-
 	peers := []string{"node1:7001", "node2:7002", "node3:7003"}
 
 	nodes := []*TestNode{
@@ -329,40 +277,29 @@ func TestRobustezza_CrashERestart(t *testing.T) {
 		}
 	}()
 
-	// Attendi convergenza iniziale
 	waitForConvergence(t, nodes, 30.0, 0.5, 4*time.Second)
 
-	// CRASH di node-3
-	t.Log("→ crash node-3")
 	bus.Block("node3:7003")
 	cancels[2]()
 	time.Sleep(200 * time.Millisecond)
 
-	// RESTART di node-3 con nuovo contributo (simula stateless rejoin)
-	t.Log("→ restart node-3 con valore 50.0")
 	bus.Unblock("node3:7003")
 	restartedNode := newTestNode(t, "node-3", "node3:7003", 50.0, "average", bus, peers[:2])
 	cancels[2] = restartedNode.Start(t)
 	nodes[2] = restartedNode
 
-	// Dopo il restart, il cluster deve riconvergere
 	converged := waitForConvergence(t, nodes, 30.0, 1.0, 6*time.Second)
 	if !converged {
 		for _, n := range nodes {
 			est, _ := n.Engine.GetEstimate()
-			t.Logf("  nodo %s post-restart: stima=%.4f", n.ID, est)
+			t.Logf("nodo %s post-restart: stima=%.4f", n.ID, est)
 		}
-		t.Error("cluster non ha riconvergito dopo crash+restart")
+		t.Error("cluster non ha riconvergito dopo restart")
 	}
 }
 
-// =====================================================================
-// Test M09-5: Partizione di rete — split brain e healing
-// =====================================================================
-
 func TestRobustezza_PartizioneRete(t *testing.T) {
 	bus := NewInMemoryBus()
-
 	peers := []string{"node1:7001", "node2:7002", "node3:7003"}
 
 	nodes := []*TestNode{
@@ -381,36 +318,25 @@ func TestRobustezza_PartizioneRete(t *testing.T) {
 		}
 	}()
 
-	// Attendi convergenza con somma = 90
 	waitForConvergence(t, nodes, 90.0, 1.0, 4*time.Second)
 
-	// PARTIZIONE: isola node-3
-	t.Log("→ partizione di rete: node-3 isolato")
 	bus.Block("node3:7003")
 	time.Sleep(300 * time.Millisecond)
 
-	// HEALING: ripristina la connettività
-	t.Log("→ healing: node-3 riconnesso")
 	bus.Unblock("node3:7003")
 
-	// Dopo healing, riconvergenza alla somma originale
 	converged := waitForConvergence(t, nodes, 90.0, 1.0, 6*time.Second)
 	if !converged {
 		for _, n := range nodes {
 			est, _ := n.Engine.GetEstimate()
-			t.Logf("  nodo %s post-healing: stima=%.4f", n.ID, est)
+			t.Logf("nodo %s post-healing: stima=%.4f", n.ID, est)
 		}
-		t.Error("cluster SUM non ha riconvergito dopo partizione")
+		t.Error("cluster non ha riconvergito dopo partizione")
 	}
 }
 
-// =====================================================================
-// Test M09-6: Idempotenza CRDT con messaggi duplicati
-// =====================================================================
-
 func TestRobustezza_MessaggiDuplicati(t *testing.T) {
 	bus := NewInMemoryBus()
-
 	peers := []string{"node1:7001", "node2:7002"}
 
 	nodes := []*TestNode{
@@ -428,11 +354,8 @@ func TestRobustezza_MessaggiDuplicati(t *testing.T) {
 		}
 	}()
 
-	// Aspetta che i nodi si scambino messaggi
 	time.Sleep(1 * time.Second)
 
-	// Invia manualmente un messaggio duplicato a node-2
-	// (stesso NodeID e versione di node-1 che node-2 ha già visto)
 	snap := nodes[0].Engine.State.Snapshot()
 	dupMsg := message.GossipMessage{
 		MessageID: "dup-msg-1",
@@ -446,19 +369,12 @@ func TestRobustezza_MessaggiDuplicati(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	// La somma deve restare 40, non 50 (no doppio conteggio)
 	est, _ := nodes[1].Engine.GetEstimate()
 	if math.Abs(est-40.0) > 2.0 {
-		t.Errorf("con duplicato: attesa somma ~40.0, ottenuta %.4f", est)
+		t.Errorf("con duplicato: attesa stima ~40.0, ottenuta %.4f", est)
 	}
 }
 
-// =====================================================================
-// Helper: waitForConvergence
-// =====================================================================
-
-// waitForConvergence attende che tutti i nodi abbiano una stima entro
-// tolerance dal valore atteso, entro il timeout specificato.
 func waitForConvergence(
 	t *testing.T,
 	nodes []*TestNode,

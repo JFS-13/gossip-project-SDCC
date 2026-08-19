@@ -25,17 +25,17 @@ type Member struct {
 	Status      MemberStatus
 	Incarnation uint64
 	LastSeen    time.Time
-	DeadSince   time.Time // Timestamp di quando il nodo è stato dichiarato dead (zero se non dead)
+	DeadSince   time.Time
 }
 
-// Config contiene le tempistiche per il failure detector.
+// Config definisce le tempistiche operative per il failure detector.
 type Config struct {
 	SuspectTimeout time.Duration
 	DeadTimeout    time.Duration
-	CleanupTimeout time.Duration // Tempo dopo il quale un nodo dead viene rimosso dalla memoria (0 = mai)
+	CleanupTimeout time.Duration
 }
 
-// Manager gestisce l'elenco dei membri e il failure detection.
+// Manager gestisce l'elenco dei membri e il failure detection locale.
 type Manager struct {
 	selfID   message.NodeID
 	selfAddr string
@@ -53,7 +53,6 @@ func NewManager(selfID message.NodeID, selfAddr string, config Config, initialPe
 		config:   config,
 	}
 
-	// Aggiunge sé stesso con incarnazione basata sul timestamp (previene l'Incarnation Reset)
 	m.members[selfID] = &Member{
 		NodeID:      selfID,
 		Addr:        selfAddr,
@@ -65,9 +64,7 @@ func NewManager(selfID message.NodeID, selfAddr string, config Config, initialPe
 	return m
 }
 
-// IncrementIncarnation incrementa l'incarnazione del nodo locale.
-// Questo funge da heartbeat: le altre istanze nel cluster, vedendo un
-// 'incarnazione più alta, aggiorneranno il LastSeen prevenendo falsi positivi.
+// IncrementIncarnation incrementa l'incarnazione del nodo locale fungendo da heartbeat.
 func (m *Manager) IncrementIncarnation() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -77,7 +74,7 @@ func (m *Manager) IncrementIncarnation() {
 	}
 }
 
-// AddPeer aggiunge un peer all'elenco o ne aggiorna l'ultimo avvistamento.
+// AddPeer inserisce un nuovo peer o ne aggiorna il tempo di ultimo contatto.
 func (m *Manager) AddPeer(nodeID message.NodeID, addr string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -99,7 +96,7 @@ func (m *Manager) AddPeer(nodeID message.NodeID, addr string) {
 	}
 }
 
-// TouchPeer aggiorna il LastSeen di un peer conosciuto.
+// TouchPeer aggiorna il tempo di ultimo contatto di un peer conosciuto.
 func (m *Manager) TouchPeer(nodeID message.NodeID) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -109,7 +106,7 @@ func (m *Manager) TouchPeer(nodeID message.NodeID) {
 	}
 }
 
-// GetAlivePeers restituisce tutti i peer in stato alive o suspect.
+// GetAlivePeers restituisce tutti i peer correntemente attivi o sospetti.
 func (m *Manager) GetAlivePeers() []message.MembershipEntry {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -129,7 +126,7 @@ func (m *Manager) GetAlivePeers() []message.MembershipEntry {
 	return alive
 }
 
-// GetRandomPeers seleziona un massimo di n peer casuali (escludendo sé stesso).
+// GetRandomPeers seleziona un sottoinsieme casuale di peer attivi, escludendo il nodo locale.
 func (m *Manager) GetRandomPeers(n int) []message.MembershipEntry {
 	alive := m.GetAlivePeers()
 	var candidates []message.MembershipEntry
@@ -151,26 +148,24 @@ func (m *Manager) GetRandomPeers(n int) []message.MembershipEntry {
 	return candidates[:n]
 }
 
-// GetClusterSize restituisce il numero totale di nodi vivi e sospetti (incluso se stesso).
+// GetClusterSize calcola il numero totale di nodi vivi e sospetti.
 func (m *Manager) GetClusterSize() int {
 	return len(m.GetAlivePeers())
 }
 
-// MergeMembership unisce le entry ricevute da remoto.
+// MergeMembership applica gli aggiornamenti di stato pervenuti dai peer remoti.
 func (m *Manager) MergeMembership(entries []message.MembershipEntry) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	now := time.Now()
 	for _, entry := range entries {
-		// Non si aggiorna lo stato di sé stessi da informazioni esterne
 		if entry.NodeID == m.selfID {
 			continue
 		}
 
 		local, exists := m.members[entry.NodeID]
 		if !exists {
-			// Nuovo nodo
 			m.members[entry.NodeID] = &Member{
 				NodeID:      entry.NodeID,
 				Addr:        entry.Addr,
@@ -181,14 +176,12 @@ func (m *Manager) MergeMembership(entries []message.MembershipEntry) {
 			continue
 		}
 
-		// Se l'incarnazione ricevuta è maggiore, si accetta il nuovo stato
 		if entry.Incarnation > local.Incarnation {
 			local.Incarnation = entry.Incarnation
 			local.Status = MemberStatus(entry.Status)
 			local.LastSeen = now
 			local.Addr = entry.Addr
 		} else if entry.Incarnation == local.Incarnation {
-			// A parità di incarnazione, suspect prevale su alive, dead prevale su suspect, leave è definitivo
 			if local.Status == StatusAlive && entry.Status == string(StatusSuspect) {
 				local.Status = StatusSuspect
 			} else if (local.Status == StatusAlive || local.Status == StatusSuspect) && entry.Status == string(StatusDead) {
@@ -200,7 +193,7 @@ func (m *Manager) MergeMembership(entries []message.MembershipEntry) {
 	}
 }
 
-// SnapshotEntries restituisce lo stato completo dei membri.
+// SnapshotEntries cattura un'istantanea di tutte le voci della membership locale.
 func (m *Manager) SnapshotEntries() []message.MembershipEntry {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -218,8 +211,7 @@ func (m *Manager) SnapshotEntries() []message.MembershipEntry {
 	return entries
 }
 
-// CheckTimeouts verifica le scadenze temporali per rilevare fallimenti
-// e rimuove i nodi dead da troppo tempo (tombstone cleanup).
+// CheckTimeouts analizza i timer di inattività per identificare e rimuovere i nodi falliti.
 func (m *Manager) CheckTimeouts(now time.Time) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -231,9 +223,7 @@ func (m *Manager) CheckTimeouts(now time.Time) {
 			continue
 		}
 
-		// Skip nodi in leave (già rimossi logicamente)
 		if member.Status == StatusLeave {
-			// I nodi leave possono essere rimossi dopo il cleanup timeout
 			if m.config.CleanupTimeout > 0 && !member.DeadSince.IsZero() &&
 				now.Sub(member.DeadSince) > m.config.CleanupTimeout {
 				toRemove = append(toRemove, member.NodeID)
@@ -241,9 +231,7 @@ func (m *Manager) CheckTimeouts(now time.Time) {
 			continue
 		}
 
-		// Skip nodi già dead
 		if member.Status == StatusDead {
-			// Tombstone cleanup: rimuovi nodi dead da troppo tempo
 			if m.config.CleanupTimeout > 0 && !member.DeadSince.IsZero() &&
 				now.Sub(member.DeadSince) > m.config.CleanupTimeout {
 				toRemove = append(toRemove, member.NodeID)
@@ -261,13 +249,12 @@ func (m *Manager) CheckTimeouts(now time.Time) {
 		}
 	}
 
-	// Rimuovi i nodi dead/leave da troppo tempo
 	for _, nodeID := range toRemove {
 		delete(m.members, nodeID)
 	}
 }
 
-// RemovePeer rimuove completamente un nodo dall'elenco.
+// RemovePeer elimina in modo esplicito un nodo dalla membership.
 func (m *Manager) RemovePeer(nodeID message.NodeID) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

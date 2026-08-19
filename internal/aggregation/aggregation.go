@@ -5,17 +5,14 @@ import (
 	"gossip-project/internal/message"
 )
 
-// Aggregator definisce il contratto per le aggregazioni supportate.
-// Ogni aggregatore sa come:
-//   - Impostare il contributo di un nodo (SetContribution)
-//   - Calcolare il risultato dall'insieme dei contributi (ComputeResult)
+// Aggregator definisce l'interfaccia per le logiche di aggregazione.
 type Aggregator interface {
 	Type() string
 	SetContribution(state *message.AggregationState, nodeID message.NodeID, value float64)
 	ComputeResult(state *message.AggregationState, aliveNodes map[message.NodeID]bool) float64
 }
 
-// Factory crea un'implementazione di Aggregator in base al tipo richiesto.
+// Factory istanzia e restituisce l'implementazione dell'aggregatore corrispondente al tipo indicato.
 func Factory(kind string) (Aggregator, error) {
 	switch kind {
 	case "sum":
@@ -27,13 +24,13 @@ func Factory(kind string) (Aggregator, error) {
 	case "max":
 		return &MaxAggregator{}, nil
 	case "topk":
-		return &TopKAggregator{K: 5}, nil // Default K=5
+		return &TopKAggregator{K: 5}, nil
 	default:
 		return nil, fmt.Errorf("aggregazione non supportata: %s", kind)
 	}
 }
 
-// NewTopK creates a TopKAggregator with a specific K value.
+// NewTopK istanzia un aggregatore Top-K specificando la cardinalità K.
 func NewTopK(k int) *TopKAggregator {
 	if k < 1 {
 		k = 5

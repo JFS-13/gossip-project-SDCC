@@ -10,17 +10,16 @@ import (
 // EngineState rappresenta lo stato completo di un nodo gossip.
 type EngineState struct {
 	NodeID          message.NodeID
-	MyEpoch         int64 // Epoca di avvio del nodo (UnixNano)
+	MyEpoch         int64
 	Round           uint64
-	AggregationType string                   // "sum", "average", "min", "max", "topk"
-	LocalValue      float64                  // Contributo locale originale
-	Estimate        float64                  // Stima di aggregazione attualmente calcolata
-	Aggregation     message.AggregationState // Stato CRDT per contributo
+	AggregationType string
+	LocalValue      float64
+	Estimate        float64
+	Aggregation     message.AggregationState
 	mu              sync.RWMutex
 }
 
 // NewEngineState inizializza lo stato e imposta il contributo del nodo.
-// L'Epoch viene generato al momento della creazione (boot del nodo).
 func NewEngineState(nodeID message.NodeID, aggType string, localValue float64) *EngineState {
 	s := &EngineState{
 		NodeID:          nodeID,
@@ -36,14 +35,13 @@ func NewEngineState(nodeID message.NodeID, aggType string, localValue float64) *
 	return s
 }
 
-// UpdateLocalContribution aggiorna il contributo locale e incrementa la versione.
+// UpdateLocalContribution aggiorna il contributo locale e incrementa la versione associata.
 func (s *EngineState) UpdateLocalContribution(value float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.LocalValue = value
 
-	// Ottieni la versione attuale, se esiste
 	version := uint64(1)
 	if curr, exists := s.Aggregation.Contributions[s.NodeID]; exists {
 		version = curr.Version + 1
@@ -79,7 +77,7 @@ func (s *EngineState) UpdateLocalTopK(values []float64) {
 	s.Aggregation.Contributions[s.NodeID] = contrib
 }
 
-// MergeRemote effettua un merge thread-safe del CRDT.
+// MergeRemote applica le modifiche di uno stato remoto a quello locale.
 func (s *EngineState) MergeRemote(remote *message.AggregationState) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -87,7 +85,7 @@ func (s *EngineState) MergeRemote(remote *message.AggregationState) bool {
 	return s.Aggregation.MergeCRDT(remote)
 }
 
-// Snapshot restituisce una copia profonda thread-safe per l'invio.
+// Snapshot restituisce una copia sicura e indipendente dello stato di aggregazione.
 func (s *EngineState) Snapshot() message.AggregationState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -98,7 +96,6 @@ func (s *EngineState) Snapshot() message.AggregationState {
 	}
 
 	for k, v := range s.Aggregation.Contributions {
-		// TopK richiede una deep copy della slice
 		var topKCopy []float64
 		if len(v.TopK) > 0 {
 			topKCopy = make([]float64, len(v.TopK))
@@ -118,28 +115,28 @@ func (s *EngineState) Snapshot() message.AggregationState {
 	return snap
 }
 
-// GetEstimate restituisce la stima attuale.
+// GetEstimate restituisce il valore stimato.
 func (s *EngineState) GetEstimate() float64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Estimate
 }
 
-// SetEstimate imposta la stima attuale.
+// SetEstimate imposta il valore stimato.
 func (s *EngineState) SetEstimate(estimate float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Estimate = estimate
 }
 
-// GetRound restituisce il round corrente.
+// GetRound restituisce l'identificativo del round corrente.
 func (s *EngineState) GetRound() uint64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Round
 }
 
-// IncrementRound incrementa il round di 1.
+// IncrementRound incrementa il round corrente.
 func (s *EngineState) IncrementRound() {
 	s.mu.Lock()
 	defer s.mu.Unlock()

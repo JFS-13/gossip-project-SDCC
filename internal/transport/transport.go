@@ -2,17 +2,17 @@ package transport
 
 import "context"
 
-// MessageHandler gestisce payload ricevuti dal layer transport.
+// MessageHandler definisce la callback per i payload ricevuti dal livello transport.
 type MessageHandler func(ctx context.Context, payload []byte) error
 
-// Transport definisce il contratto di invio/ricezione tra nodi gossip.
+// Transport definisce l'interfaccia di comunicazione di rete per i nodi gossip.
 type Transport interface {
 	Start(ctx context.Context, handler MessageHandler) error
 	Send(ctx context.Context, address string, payload []byte) error
 	Close() error
 }
 
-// NoopTransport è uno stub per test senza rete reale.
+// NoopTransport fornisce un'implementazione vuota di Transport per scopi di testing.
 type NoopTransport struct{}
 
 func (NoopTransport) Start(context.Context, MessageHandler) error { return nil }

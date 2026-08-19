@@ -14,23 +14,20 @@ import (
 )
 
 // Transport definisce l'interfaccia per l'invio e la ricezione di messaggi gossip.
-// Usa transport.MessageHandler per garantire compatibilità con UDPTransport e NoopTransport.
 type Transport interface {
 	Send(ctx context.Context, address string, payload []byte) error
 	Start(ctx context.Context, handler transport.MessageHandler) error
 	Close() error
 }
 
-// Aggregator definisce l'interfaccia per calcolare i risultati dell'aggregazione.
-// Sarà implementata dal package internal/aggregation.
+// Aggregator definisce l'interfaccia per il calcolo dei risultati dell'aggregazione.
 type Aggregator interface {
 	Type() string
 	ComputeResult(state *message.AggregationState, aliveNodes map[message.NodeID]bool) float64
 	SetContribution(state *message.AggregationState, nodeID message.NodeID, value float64)
 }
 
-// MembershipProvider fornisce informazioni sui peer.
-// Sarà implementata dal package internal/membership come Manager.
+// MembershipProvider fornisce le informazioni relative ai peer noti al sistema.
 type MembershipProvider interface {
 	GetAlivePeers() []message.MembershipEntry
 	GetRandomPeers(n int) []message.MembershipEntry
@@ -40,12 +37,12 @@ type MembershipProvider interface {
 	IncrementIncarnation()
 }
 
-// Engine rappresenta il motore gossip che esegue round periodici.
+// Engine rappresenta il motore gossip che esegue i round periodici di aggiornamento.
 type Engine struct {
 	State      *EngineState
 	nodeID     message.NodeID
 	myAddress  string
-	seedPeers  []string // Indirizzi seed per il bootstrap (usati quando la membership è vuota)
+	seedPeers  []string
 	transport  Transport
 	aggregator Aggregator
 	membership MembershipProvider
@@ -56,7 +53,7 @@ type Engine struct {
 	mu         sync.RWMutex
 }
 
-// NewEngine crea un nuovo motore gossip.
+// NewEngine inizializza un nuovo motore gossip.
 func NewEngine(
 	nodeID message.NodeID,
 	myAddress string,
@@ -81,7 +78,7 @@ func NewEngine(
 	}
 }
 
-// Start avvia il ciclo gossip in una goroutine.
+// Start avvia il ciclo di esecuzione del protocollo gossip.
 func (e *Engine) Start(ctx context.Context) error {
 	err := e.transport.Start(ctx, transport.MessageHandler(e.handleMessage))
 	if err != nil {
@@ -107,27 +104,27 @@ func (e *Engine) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop ferma il motore gossip.
+// Stop termina l'esecuzione del motore gossip e chiude il transport.
 func (e *Engine) Stop() error {
 	close(e.stopCh)
 	return e.transport.Close()
 }
 
-// executeRound esegue un round di gossip.
+// executeRound avvia un singolo ciclo di gossip, incrementando lo stato interno,
+// inviando messaggi ai peer e ricalcolando la stima di aggregazione.
 func (e *Engine) executeRound(ctx context.Context) {
-	// 1. Incrementa il round
 	e.State.IncrementRound()
 
-	// 2. Ottieni peer casuali dalla membership (fino al count fanout)
+	// Selezione casuale dei target per il gossip (Fanout)
 	peers := e.membership.GetRandomPeers(e.fanout)
 
-	// 3. Prendi uno snapshot dello stato corrente
 	aggState := e.State.Snapshot()
 
-	// 4. Incrementa la propria incarnazione (heartbeat) e genera le entry di membership
+	// Aggiornamento Heartbeat/Incarnation locale per testimoniare l'attività
 	e.membership.IncrementIncarnation()
 	membershipEntries := e.membership.SnapshotEntries()
 
+	// Preparazione del payload con Piggybacking (Stato Aggregazione + Topologia)
 	msgID := message.MessageID(fmt.Sprintf("msg-%s-%d", e.nodeID, time.Now().UnixNano()))
 	msg := message.GossipMessage{
 		MessageID:  msgID,
@@ -138,14 +135,13 @@ func (e *Engine) executeRound(ctx context.Context) {
 		Membership: membershipEntries,
 	}
 
-	// 5. Serializza in JSON
 	payload, err := json.Marshal(msg)
 	if err != nil {
 		e.logger.Printf("Errore nella serializzazione del messaggio: %v", err)
 		return
 	}
 
-	// 6. Invia ai peer noti dalla membership
+	// Disseminazione verso i peer selezionati
 	if len(peers) > 0 {
 		for _, peer := range peers {
 			err := e.transport.Send(ctx, peer.Addr, payload)
@@ -155,23 +151,25 @@ func (e *Engine) executeRound(ctx context.Context) {
 		}
 	}
 
-	// 7. Partition Healing & Bootstrap
-	// Invia periodicamente ai seed peers anche se abbiamo già dei peer (20% dei round)
-	// Questo previene scenari di "Split-Brain" dove sottogruppi isolati non si uniscono mai
-	// al cluster principale se si avviano in ordine sparso.
+	// Risoluzione Partizioni di Rete
+	// Per evitare che il sistema si frammenti in sottoreti isolate che si ignorano a vicenda,
+	// il nodo tenta periodicamente di contattare i nodi "seed" iniziali.
+	// Se il nodo è completamente isolato, contatta i seed al 100%.
+	// Se invece ha già dei peer, li contatta solo con il 20% di probabilità per ridurre
+	// l'overhead, garantendo comunque che eventuali partizioni separate prima o poi si ricongiungano.
 	if len(peers) == 0 || rand.Float32() < 0.20 {
 		for _, seedAddr := range e.seedPeers {
 			if seedAddr == e.myAddress {
-				continue // Non inviare a sé stesso
+				continue
 			}
 			err := e.transport.Send(ctx, seedAddr, payload)
 			if err != nil {
-				e.logger.Printf("Bootstrap/Healing: errore invio al seed %s: %v", seedAddr, err)
+				e.logger.Printf("Errore invio al seed %s: %v", seedAddr, err)
 			}
 		}
 	}
 
-	// 7. Ricalcola la stima dopo l'invio
+	// Ricalcolo dell'aggregato filtrando i nodi Dead/Leave
 	aliveNodes := make(map[message.NodeID]bool)
 	for _, entry := range membershipEntries {
 		if entry.Status == "alive" || entry.Status == "suspect" {
@@ -182,25 +180,24 @@ func (e *Engine) executeRound(ctx context.Context) {
 	e.State.SetEstimate(estimate)
 }
 
-// handleMessage è la callback per il transport: deserializza GossipMessage,
-// chiama MergeCRDT sullo stato, unisce la membership e ricalcola la stima.
+// handleMessage gestisce la ricezione dei messaggi dal transport elaborando
+// lo stato CRDT, aggiornando la membership e ricalcolando la stima.
 func (e *Engine) handleMessage(ctx context.Context, payload []byte) error {
-	// 1. Deserializza JSON in GossipMessage
 	var msg message.GossipMessage
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		e.logger.Printf("Errore nella deserializzazione del payload: %v", err)
 		return err
 	}
 
-	// 2. Unisci lo stato remoto in quello locale tramite MergeCRDT
+	// Merge dello stato applicativo tramite logica CRDT State-Based
 	changed := e.State.MergeRemote(&msg.State)
 
-	// 3. Unisci le voci di membership remote
+	// Estrazione e propagazione delle informazioni sulla topologia
 	if len(msg.Membership) > 0 {
 		e.membership.MergeMembership(msg.Membership)
 	}
 
-	// 4. Ricalcola la stima
+	// Ricalcolo della stima ignorando i nodi che non sono Alive o Suspect
 	aggState := e.State.Snapshot()
 	membershipEntries := e.membership.SnapshotEntries()
 	aliveNodes := make(map[message.NodeID]bool)
@@ -212,7 +209,6 @@ func (e *Engine) handleMessage(ctx context.Context, payload []byte) error {
 	estimate := e.aggregator.ComputeResult(&aggState, aliveNodes)
 	e.State.SetEstimate(estimate)
 
-	// 5. Logga il risultato del merge
 	if changed {
 		e.logger.Printf("Round %d: Unito stato dal peer %s. Nuova stima: %f", msg.Round, msg.SenderID, estimate)
 	}
@@ -220,7 +216,7 @@ func (e *Engine) handleMessage(ctx context.Context, payload []byte) error {
 	return nil
 }
 
-// GetEstimate restituisce (stima, knownNodes) in modo thread-safe.
+// GetEstimate restituisce la stima corrente e il numero di nodi noti in modo concorrente.
 func (e *Engine) GetEstimate() (float64, int) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -230,7 +226,7 @@ func (e *Engine) GetEstimate() (float64, int) {
 	return estimate, knownNodes
 }
 
-// GetAliveNodeIDs restituisce la mappa dei nodi attualmente vivi/sospetti.
+// GetAliveNodeIDs restituisce la lista dei nodi correntemente in stato alive o suspect.
 func (e *Engine) GetAliveNodeIDs() map[message.NodeID]bool {
 	entries := e.membership.SnapshotEntries()
 	alive := make(map[message.NodeID]bool)
@@ -242,13 +238,10 @@ func (e *Engine) GetAliveNodeIDs() map[message.NodeID]bool {
 	return alive
 }
 
-// AnnounceLeave invia un messaggio di leave a tutti i peer noti.
-// Chiamata durante un graceful shutdown per notificare la rete
-// che il nodo sta uscendo volontariamente (non è un crash).
+// AnnounceLeave notifica i peer in merito all'uscita volontaria del nodo corrente.
 func (e *Engine) AnnounceLeave(ctx context.Context) {
 	peers := e.membership.GetAlivePeers()
 
-	// Crea un messaggio con la membership entry di sé stesso con status "leave"
 	leaveEntry := message.MembershipEntry{
 		NodeID: e.nodeID,
 		Addr:   e.myAddress,
@@ -272,7 +265,6 @@ func (e *Engine) AnnounceLeave(ctx context.Context) {
 		return
 	}
 
-	// Invia a tutti i peer noti (non solo fanout, vogliamo massima diffusione)
 	for _, peer := range peers {
 		if peer.NodeID == e.nodeID {
 			continue
@@ -283,12 +275,12 @@ func (e *Engine) AnnounceLeave(ctx context.Context) {
 	e.logger.Printf("Leave announcement inviato a %d peer", len(peers)-1)
 }
 
-// GetRound restituisce il round corrente (delegato a EngineState).
+// GetRound restituisce il round corrente dal motore di stato.
 func (e *Engine) GetRound() uint64 {
 	return e.State.GetRound()
 }
 
-// GetEpoch restituisce l'epoca di avvio del nodo.
+// GetEpoch restituisce l'epoca corrente di avvio del nodo.
 func (e *Engine) GetEpoch() int64 {
 	return e.State.MyEpoch
 }

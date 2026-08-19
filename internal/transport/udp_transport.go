@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// UDPTransport implementa l'interfaccia Transport utilizzando UDP.
+// UDPTransport implementa l'interfaccia Transport utilizzando il protocollo UDP.
 type UDPTransport struct {
 	listenAddr string
 	conn       *net.UDPConn
@@ -22,7 +22,7 @@ type UDPTransport struct {
 	wg         sync.WaitGroup
 }
 
-// NewUDPTransport crea una nuova istanza di UDPTransport.
+// NewUDPTransport istanzia e restituisce un nuovo UDPTransport.
 func NewUDPTransport(listenAddr string) (*UDPTransport, error) {
 	if listenAddr == "" {
 		return nil, errors.New("indirizzo di ascolto non valido")
@@ -33,7 +33,7 @@ func NewUDPTransport(listenAddr string) (*UDPTransport, error) {
 	}, nil
 }
 
-// Start avvia l'ascolto su UDP e il loop di lettura.
+// Start avvia il socket UDP e il loop in background per la ricezione dei pacchetti.
 func (t *UDPTransport) Start(ctx context.Context, handler MessageHandler) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -65,7 +65,7 @@ func (t *UDPTransport) Start(ctx context.Context, handler MessageHandler) error 
 	return nil
 }
 
-// Send invia un payload tramite il socket UDP connesso o un dial fallback.
+// Send trasmette un payload alla destinazione specificata.
 func (t *UDPTransport) Send(ctx context.Context, address string, payload []byte) error {
 	t.mu.RLock()
 	closed := t.closed
@@ -86,7 +86,6 @@ func (t *UDPTransport) Send(ctx context.Context, address string, payload []byte)
 		return err
 	}
 
-	// Fallback se il transport non è ancora avviato in ascolto
 	dialConn, err := net.DialUDP("udp", nil, addr)
 	if err != nil {
 		return err
@@ -97,7 +96,7 @@ func (t *UDPTransport) Send(ctx context.Context, address string, payload []byte)
 	return err
 }
 
-// Close chiude la connessione UDP e ferma il loop di lettura in modo idempotente.
+// Close termina la connessione UDP e interrompe il ciclo di ricezione.
 func (t *UDPTransport) Close() error {
 	var err error
 	t.closeOnce.Do(func() {
@@ -113,7 +112,7 @@ func (t *UDPTransport) Close() error {
 	return err
 }
 
-// readLoop è il ciclo in background per la lettura dei messaggi UDP in arrivo.
+// readLoop esegue la lettura continua dei datagrammi in ingresso.
 func (t *UDPTransport) readLoop(ctx context.Context) {
 	defer t.wg.Done()
 	buffer := make([]byte, 65535)
@@ -135,7 +134,6 @@ func (t *UDPTransport) readLoop(ctx context.Context) {
 			if errors.As(err, &netErr) && netErr.Timeout() {
 				continue
 			}
-			// Se il socket è chiuso esce dal loop
 			if errors.Is(err, net.ErrClosed) {
 				return
 			}
@@ -143,7 +141,6 @@ func (t *UDPTransport) readLoop(ctx context.Context) {
 		}
 
 		if t.handler != nil && n > 0 {
-			// Crea una copia del buffer per non avere data race se l'handler è asincrono
 			payload := make([]byte, n)
 			copy(payload, buffer[:n])
 			_ = t.handler(ctx, payload)

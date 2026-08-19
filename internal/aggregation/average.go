@@ -2,14 +2,7 @@ package aggregation
 
 import "gossip-project/internal/message"
 
-// AverageAggregator implementa la media con CRDT per-contributo.
-//
-// Ogni nodo contribuisce una coppia (Sum, Count). Il risultato è:
-//
-//	AVERAGE = Σ contributions[nodeID].Sum / Σ contributions[nodeID].Count
-//
-// Usando Sum e Count separati per nodo, la media è calcolata correttamente
-// anche con nodi che contribuiscono più volte (il CRDT prende la versione più alta).
+// AverageAggregator esegue il calcolo della media distribuita sfruttando la semantica CRDT.
 type AverageAggregator struct{}
 
 func (a *AverageAggregator) Type() string { return "average" }
@@ -35,7 +28,7 @@ func (a *AverageAggregator) ComputeResult(state *message.AggregationState, alive
 	var totalCount uint64
 	for nodeID, contrib := range state.Contributions {
 		if !aliveNodes[nodeID] {
-			continue // Escludi i nodi morti
+			continue
 		}
 		totalSum += contrib.Sum
 		totalCount += contrib.Count

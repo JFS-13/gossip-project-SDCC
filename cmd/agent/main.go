@@ -21,17 +21,17 @@ import (
 )
 
 func main() {
-	// ---- Flag di avvio ----
+	// Lettura del percorso del file di configurazione
 	configPath := flag.String("config", "", "percorso file di configurazione YAML")
 	flag.Parse()
 
-	// ---- Caricamento configurazione ----
+	// Caricamento della configurazione YAML
 	cfg, err := setup.LoadConfig(*configPath)
 	if err != nil {
 		log.Fatalf("errore configurazione: %v", err)
 	}
 
-	// ---- Logger strutturato (delegato al package telemetry) ----
+	// Setup del logger centralizzato
 	telemetry.SetupLogger(cfg.LogLevel)
 
 	slog.Info("avvio nodo gossip",
@@ -42,7 +42,7 @@ func main() {
 		"peers", cfg.SeedPeers,
 	)
 
-	// ---- Membership ----
+	// Inizializzazione del Topology Manager per la failure detection
 	advertiseAddr := cfg.AdvertiseEndpoint()
 	membershipCfg := topology.Config{
 		SuspectTimeout: time.Duration(cfg.MembershipTimeoutMs/2) * time.Millisecond,
@@ -56,11 +56,7 @@ func main() {
 		cfg.SeedPeers,
 	)
 
-	// I seed peers verranno usati dall'engine come fallback di bootstrap:
-	// quando la membership è vuota, l'engine invia direttamente a questi indirizzi.
-	// Quando i peer rispondono, la membership si auto-popola coi veri NodeID.
-
-	// ---- Aggregatore ----
+	// Inizializzazione dell'aggregatore specifico scelto in configurazione
 	var agg aggregation.Aggregator
 	if cfg.AggregationType == "topk" {
 		agg = aggregation.NewTopK(cfg.TopKSize)
@@ -71,13 +67,13 @@ func main() {
 		}
 	}
 
-	// ---- Stato CRDT iniziale ----
+	// Configurazione dello stato CRDT iniziale del nodo
 	engineState := core.NewEngineState(
 		message.NodeID(cfg.NodeID),
 		cfg.AggregationType,
 		cfg.InitialValue,
 	)
-	// Per Top-K, imposta il contributo usando il valore iniziale come unico elemento
+
 	if cfg.AggregationType == "topk" {
 		topKAgg := agg.(*aggregation.TopKAggregator)
 		topKAgg.SetTopKContribution(
@@ -89,7 +85,7 @@ func main() {
 		agg.SetContribution(&engineState.Aggregation, message.NodeID(cfg.NodeID), cfg.InitialValue)
 	}
 
-	// ---- Transport UDP ----
+	// Avvio del layer di Transport (UDP)
 	listenAddr := fmt.Sprintf("%s:%d", cfg.BindAddress, cfg.NodePort)
 	udpTransport, err := transport.NewUDPTransport(listenAddr)
 	if err != nil {
@@ -98,7 +94,7 @@ func main() {
 
 	slog.Info("transport UDP avviato", "listen_address", listenAddr, "advertise_address", advertiseAddr)
 
-	// ---- Engine gossip ----
+	// Costruzione dell'Engine Gossip principale
 	eng := core.NewEngine(
 		message.NodeID(cfg.NodeID),
 		advertiseAddr,
@@ -111,17 +107,17 @@ func main() {
 	)
 	eng.State = engineState
 
-	// ---- Context con segnale di shutdown ----
+	// Gestione dei segnali per una chiusura gracefully
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	// ---- Avvio engine ----
+	// Avvio asincrono dell'engine
 	if err := eng.Start(ctx); err != nil {
 		log.Fatalf("errore avvio engine gossip: %v", err)
 	}
 	slog.Info("engine gossip avviato", "node_id", cfg.NodeID, "interval_ms", cfg.GossipIntervalMs)
 
-	// ---- Avvio timeout checker per failure detection ----
+	// Routine periodica per il controllo dei timeout di membership
 	go func() {
 		ticker := time.NewTicker(time.Duration(cfg.MembershipTimeoutMs/2) * time.Millisecond)
 		defer ticker.Stop()
@@ -135,7 +131,7 @@ func main() {
 		}
 	}()
 
-	// ---- Stampa stima periodica ----
+	// Routine di logging periodico della stima dell'aggregazione
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
@@ -152,7 +148,6 @@ func main() {
 					"known_nodes", knownNodes,
 					"round", eng.GetRound(),
 				)
-				// Per Top-K stampa anche la lista completa
 				if cfg.AggregationType == "topk" {
 					topKAgg := agg.(*aggregation.TopKAggregator)
 					snap := eng.State.Snapshot()
@@ -163,7 +158,7 @@ func main() {
 		}
 	}()
 
-	// ---- Server HTTP per health/metrics (delegato al package telemetry) ----
+	// Avvio del server HTTP per le metriche
 	metricsAddr := fmt.Sprintf(":%d", cfg.NodePort+1000)
 	telemetry := telemetry.NewTelemetryServer(metricsAddr, cfg.NodeID, cfg.AggregationType, eng)
 	telemetry.Start()
@@ -173,17 +168,15 @@ func main() {
 
 	slog.Info("shutdown in corso", "node_id", cfg.NodeID)
 
-	// Graceful Leave: annuncia ai peer che questo nodo sta uscendo volontariamente
+	// Graceful shutdown: invia messaggio di leave ai peer
 	leaveCtx, leaveCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	eng.AnnounceLeave(leaveCtx)
 	leaveCancel()
 
-	// Shutdown del server telemetria
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	_ = telemetry.Shutdown(shutdownCtx)
 	shutdownCancel()
 
-	// Stampa stima finale
 	estimate, knownNodes := eng.GetEstimate()
 	slog.Info("shutdown nodo completato",
 		"node_id", cfg.NodeID,

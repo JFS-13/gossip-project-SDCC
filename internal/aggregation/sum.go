@@ -2,13 +2,7 @@ package aggregation
 
 import "gossip-project/internal/message"
 
-// SumAggregator implementa l'aggregazione di somma con CRDT per-contributo.
-//
-// Ogni nodo contribuisce un valore scalare. Il risultato è la somma
-// di tutti i contributi: SUM = Σ contributions[nodeID].Value
-//
-// Grazie al CRDT per-contributo, la somma è idempotente e converge
-// anche in presenza di messaggi duplicati o riordinati.
+// SumAggregator esegue il calcolo della somma distribuita sfruttando la semantica CRDT.
 type SumAggregator struct{}
 
 func (a *SumAggregator) Type() string { return "sum" }

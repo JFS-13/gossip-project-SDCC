@@ -8,9 +8,7 @@ import (
 	"gossip-project/internal/message"
 )
 
-// =====================================================================
-// Test SUM
-// =====================================================================
+// --- Test per l'aggregatore SUM ---
 
 func TestSumAggregator_Type(t *testing.T) {
 	agg := &aggregation.SumAggregator{}
@@ -19,11 +17,11 @@ func TestSumAggregator_Type(t *testing.T) {
 	}
 }
 
+// Verifica che il merge di più contributi calcoli correttamente la somma
 func TestSumAggregator_Convergenza(t *testing.T) {
 	agg := &aggregation.SumAggregator{}
 	state := &message.AggregationState{Type: "sum"}
 
-	// 3 nodi contribuiscono: somma attesa = 10 + 30 + 50 = 90
 	agg.SetContribution(state, "node-1", 10.0)
 	agg.SetContribution(state, "node-2", 30.0)
 	agg.SetContribution(state, "node-3", 50.0)
@@ -34,6 +32,7 @@ func TestSumAggregator_Convergenza(t *testing.T) {
 	}
 }
 
+// Verifica l'idempotenza CRDT in caso di messaggi duplicati o vecchi
 func TestSumAggregator_Idempotenza(t *testing.T) {
 	agg := &aggregation.SumAggregator{}
 	state := &message.AggregationState{Type: "sum"}
@@ -41,9 +40,8 @@ func TestSumAggregator_Idempotenza(t *testing.T) {
 	agg.SetContribution(state, "node-1", 10.0)
 	agg.SetContribution(state, "node-2", 30.0)
 
-	// Merge CRDT idempotente: ricevere lo stesso contributo due volte non cambia il risultato
 	remote := &message.AggregationState{Type: "sum"}
-	agg.SetContribution(remote, "node-1", 10.0) // stessa versione
+	agg.SetContribution(remote, "node-1", 10.0)
 	state.MergeCRDT(remote)
 
 	result := agg.ComputeResult(state, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
@@ -57,7 +55,6 @@ func TestSumAggregator_AggiornamentoContributo(t *testing.T) {
 	state := &message.AggregationState{Type: "sum"}
 
 	agg.SetContribution(state, "node-1", 10.0)
-	// node-1 aggiorna il suo valore: la versione aumenta
 	agg.SetContribution(state, "node-1", 20.0)
 
 	result := agg.ComputeResult(state, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
@@ -66,9 +63,7 @@ func TestSumAggregator_AggiornamentoContributo(t *testing.T) {
 	}
 }
 
-// =====================================================================
-// Test AVERAGE
-// =====================================================================
+// --- Test per l'aggregatore AVERAGE ---
 
 func TestAverageAggregator_Type(t *testing.T) {
 	agg := &aggregation.AverageAggregator{}
@@ -81,7 +76,6 @@ func TestAverageAggregator_Convergenza(t *testing.T) {
 	agg := &aggregation.AverageAggregator{}
 	state := &message.AggregationState{Type: "average"}
 
-	// 3 nodi: 10, 30, 50 → media = (10+30+50)/3 = 30
 	agg.SetContribution(state, "node-1", 10.0)
 	agg.SetContribution(state, "node-2", 30.0)
 	agg.SetContribution(state, "node-3", 50.0)
@@ -102,9 +96,7 @@ func TestAverageAggregator_NessunContributo(t *testing.T) {
 	}
 }
 
-// =====================================================================
-// Test MIN
-// =====================================================================
+// --- Test per l'aggregatore MIN ---
 
 func TestMinAggregator_Type(t *testing.T) {
 	agg := &aggregation.MinAggregator{}
@@ -140,9 +132,7 @@ func TestMinAggregator_ValoriNegativi(t *testing.T) {
 	}
 }
 
-// =====================================================================
-// Test MAX
-// =====================================================================
+// --- Test per l'aggregatore MAX ---
 
 func TestMaxAggregator_Type(t *testing.T) {
 	agg := &aggregation.MaxAggregator{}
@@ -165,9 +155,7 @@ func TestMaxAggregator_Convergenza(t *testing.T) {
 	}
 }
 
-// =====================================================================
-// Test TOP-K
-// =====================================================================
+// --- Test per l'aggregatore TOP-K ---
 
 func TestTopKAggregator_Type(t *testing.T) {
 	agg := aggregation.NewTopK(3)
@@ -176,6 +164,7 @@ func TestTopKAggregator_Type(t *testing.T) {
 	}
 }
 
+// Verifica che il merge top-k conservi e ordini globalmente solo gli elementi corretti
 func TestTopKAggregator_Convergenza(t *testing.T) {
 	agg := aggregation.NewTopK(3)
 	state := &message.AggregationState{Type: "topk"}
@@ -186,7 +175,6 @@ func TestTopKAggregator_Convergenza(t *testing.T) {
 
 	topK := agg.ComputeTopK(state, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
 
-	// Top-3 atteso: [88, 90, 95]
 	if len(topK) != 3 {
 		t.Fatalf("TOP-K: attesa lista di 3 elementi, ottenuta lunghezza %d", len(topK))
 	}
@@ -201,18 +189,15 @@ func TestTopKAggregator_Convergenza(t *testing.T) {
 	}
 }
 
-// =====================================================================
-// Test CRDT MergeCRDT
-// =====================================================================
+// --- Test della Factory e del Merge globale ---
 
+// Assicura che unire un payload identico non generi loop infiniti o doppi conteggi
 func TestMergeCRDT_Idempotenza(t *testing.T) {
-	// merge(A, A) = A
 	stateA := &message.AggregationState{Type: "sum"}
 	agg := &aggregation.SumAggregator{}
 	agg.SetContribution(stateA, "node-1", 10.0)
 
 	changed := stateA.MergeCRDT(stateA)
-	// Non deve cambiare nulla (stessa versione)
 	result := agg.ComputeResult(stateA, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
 	if math.Abs(result-10.0) > 1e-9 {
 		t.Errorf("idempotenza MergeCRDT: attesa 10.0, ottenuta %.4f (changed=%v)", result, changed)
@@ -224,9 +209,9 @@ func TestMergeCRDT_PreferisceVersioneAlta(t *testing.T) {
 	stateRemote := &message.AggregationState{Type: "sum"}
 	agg := &aggregation.SumAggregator{}
 
-	agg.SetContribution(stateLocal, "node-1", 10.0) // version 1
+	agg.SetContribution(stateLocal, "node-1", 10.0)
 	agg.SetContribution(stateRemote, "node-1", 10.0)
-	agg.SetContribution(stateRemote, "node-1", 20.0) // version 2
+	agg.SetContribution(stateRemote, "node-1", 20.0)
 
 	stateLocal.MergeCRDT(stateRemote)
 	result := agg.ComputeResult(stateLocal, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
@@ -241,7 +226,7 @@ func TestMergeCRDT_NuovoContributo(t *testing.T) {
 	agg := &aggregation.SumAggregator{}
 
 	agg.SetContribution(stateLocal, "node-1", 10.0)
-	agg.SetContribution(stateRemote, "node-2", 30.0) // nuovo nodo
+	agg.SetContribution(stateRemote, "node-2", 30.0)
 
 	stateLocal.MergeCRDT(stateRemote)
 	result := agg.ComputeResult(stateLocal, map[message.NodeID]bool{"node-1": true, "node-2": true, "node-3": true})
@@ -249,10 +234,6 @@ func TestMergeCRDT_NuovoContributo(t *testing.T) {
 		t.Errorf("MergeCRDT nuovo nodo: attesa 40.0, ottenuta %.4f", result)
 	}
 }
-
-// =====================================================================
-// Test Factory
-// =====================================================================
 
 func TestFactory_TipiSupportati(t *testing.T) {
 	tipi := []string{"sum", "average", "min", "max"}
