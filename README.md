@@ -1,6 +1,6 @@
 # Gossip-Based Distributed Data Aggregation
 
-Questo progetto implementa un sistema distribuito decentralizzato (peer-to-peer) capace di aggregare dati in tempo reale utilizzando un **protocollo epidemico (Gossip)** accoppiato a strutture dati **CRDT (Convergent Replicated Data Types)**. I CRDT sono speciali strutture dati progettate per essere replicate su più macchine; garantiscono che tutti i nodi convergano matematicamente allo stesso stato finale indipendentemente dall'ordine di arrivo dei messaggi o dalla presenza di eventuali duplicati di rete.
+Questo progetto, realizzato per il corso di Sistemi Distribuiti e Cloud Computing, implementa un sistema distribuito decentralizzato (peer-to-peer) capace di aggregare dati in tempo reale utilizzando un **protocollo epidemico (Gossip)** accoppiato a strutture dati **CRDT (Convergent Replicated Data Types)**. I CRDT sono speciali strutture dati progettate per essere replicate su più macchine; garantiscono che tutti i nodi convergano matematicamente allo stesso stato finale indipendentemente dall'ordine di arrivo dei messaggi o dalla presenza di eventuali duplicati di rete.
 
 L'obiettivo è ottenere una stima globale convergente (es. media dei carichi, ricerca del massimo, somma globale) all'interno di un cluster di nodi, senza alcun Single Point of Failure (SPOF) o nodo coordinatore.
 
@@ -21,46 +21,54 @@ L'obiettivo è ottenere una stima globale convergente (es. media dei carichi, ri
 
 ## Panoramica e Architettura
 
-Ogni nodo è un'istanza indipendente scritta in Go. Periodicamente, ogni nodo sceglie a caso $K$ peer (parametro `fanout`) e invia loro il proprio stato interno su protocollo **UDP**. 
-L'architettura si divide in layer ben definiti:
+Ogni nodo è un'istanza indipendente scritta in Go. Periodicamente, ogni nodo sceglie casualmente $K$ peer (parametro `fanout`) ed invia loro il proprio stato interno tramite protocollo **UDP**. 
+L'architettura è divisa nei seguenti layer:
 
-- **Transport**: Gestisce l'invio e la ricezione non bloccante dei pacchetti UDP serializzati in JSON.
-- **Topology**: Gestisce l'appartenenza al cluster implementando un meccanismo di *Failure Detection* basato sul protocollo **SWIM** (Scalable Weakly-consistent Infection-style Process Group Membership). Si tratta di un protocollo in cui i nodi si monitorano a vicenda in modo decentralizzato, segnando lo stato dei peer come `Alive`, `Suspect` o `Dead` tramite dei timeout. Tramite *piggybacking*, ogni messaggio gossip trasporta anche la vista della topologia del mittente, garantendo la scoperta dinamica dei nuovi nodi.
-- **Aggregation (CRDT)**: Motore matematico idempotente. Garantisce che il risultato dell'aggregazione finale rimanga matematicamente corretto e convergente anche se i pacchetti UDP arrivano duplicati o fuori ordine.
-- **Core Engine**: Coordina i tick periodici, unisce gli stati ricevuti e gestisce le transizioni (come il ping stocastico ai seed originali per prevenire partizioni di rete permanenti).
-- **Setup**: Modulo dedicato al caricamento e alla validazione stretta dei parametri di configurazione passati tramite file YAML.
-- **Telemetry**: Sottosistema responsabile del logging strutturato (tramite `slog`) e dell'esposizione del server HTTP per le metriche.
+- **Transport**: Gestisce l'invio e la ricezione asincrona dei pacchetti UDP serializzati in JSON. Basandosi su un'interfaccia astratta, permette di iniettare dinamicamente implementazioni diverse: oltre al layer UDP reale, include lo stub NoopTransport per gli unit test ed un virtual switch in memoria (basato su Go Channels) per gli integration test.
+- **Topology**: Gestisce l'appartenenza al cluster implementando un meccanismo di *Failure Detection* basato sul protocollo **SWIM** (Scalable Weakly-consistent Infection-style Process Group Membership). Si tratta di un protocollo in cui i nodi si monitorano a vicenda in modo decentralizzato, segnando lo stato dei peer come `Alive`, `Suspect` o `Dead` tramite dei timeout. Tramite *piggybacking*, ogni messaggio gossip trasporta anche la vista della topologia del mittente, permettendo la scoperta dinamica dei nuovi nodi.
+- **Message**: Definisce i modelli dati scambiati sulla rete (il payload GossipMessage), tra cui la struttura dello stato CRDT condiviso (AggregationState). Qui risiede la definizione di Epoch e Version, ovvero degli orologi logici scalari utilizzati per imporre un ordine totale agli aggiornamenti e risolvere in modo deterministico i conflitti.
+- **Aggregation**: Motore matematico idempotente. Garantisce che il risultato dell'aggregazione finale rimanga matematicamente corretto e convergente anche se i pacchetti UDP arrivano duplicati o fuori ordine.
+- **Core**: Cuore pulsante dell'istanza (event loop), innescato da un time ticker su una goroutine dedicata. Coordina il campionamento casuale del fanout per i round epidemici, orchestra il Merge asincrono (protetto da lock) degli stati CRDT, ed attua meccanismi di auto-guarigione (come il ping stocastico verso i seed originali) per sanare eventuali partizioni di rete o scenari di split-brain.
+- **Setup**: Modulo dedicato al caricamento ed alla validazione stretta dei parametri operativi. La configurazione viene risolta tramite una catena di fallback: valori di default, parsing di un file YAML ed infine sovrascrittura tramite variabili d'ambiente (strategia per il deploy su Docker Compose ed AWS).
+- **Telemetry**: Sottosistema responsabile del logging strutturato in formato JSON (tramite log/slog) e dell'esposizione asincrona di un server HTTP per l'osservabilità. Espone l'endpoint di liveness /health e l'endpoint /metrics, che permette di interrogare in tempo reale il nodo per conoscere il valore della stima aggregata (estimate), il numero di peer vivi visti dal nodo (known_nodes), il round di esecuzione corrente e l'epoch.
 
 ---
 
 ## Configurazione del Nodo
 
-Il nodo è progettato per essere interamente configurabile all'avvio tramite file **YAML**. Il percorso del file si specifica con il flag `--config`. Nel repository sono presenti configurazioni di esempio all'interno della cartella `configs/` (es. `node1.yaml`, `node2.yaml`).
+I nodi sono progettati per essere interamente configurabili all'avvio tramite file **YAML**. Il percorso del file si specifica con il flag `--config`. Nel repository sono presenti configurazioni di esempio all'interno della cartella `configs/` (es. `node1.yaml`, `node2.yaml`, ...).
 
 Esempio di file `node1.yaml`:
 ```yaml
 node_id: "node-1"
 bind_address: "0.0.0.0"
+advertise_addr: "node1"
 node_port: 7001
-advertise_address: "node1:7001"
-gossip_interval_ms: 1000
-fanout: 2
-aggregation: "average"
-initial_value: 10.0
 seed_peers:
   - "node2:7002"
   - "node3:7003"
-membership_timeout_ms: 5000
-cleanup_timeout_ms: 15000
+gossip_interval_ms: 1000
+fanout: 2
+membership_timeout_ms: 10000
+aggregation_type: "topk"
+initial_value: 10.0
+top_k_size: 3
+log_level: "info"
 ```
 
 ### Parametri Chiave
-- `node_id`: Nome logico univoco del nodo (es. `node-1`). È fondamentale che ogni nodo abbia un ID distinto.
-- `advertise_address`: L'endpoint reale (`host:porta`) che gli altri nodi devono usare per contattare questa istanza. In Docker, coincide con il nome del servizio DNS.
-- `fanout`: Numero di peer contattati a ogni round di gossip.
-- `gossip_interval_ms`: Frequenza del ciclo di gossip in millisecondi.
-- `aggregation` e `initial_value`: Tipo di calcolo da effettuare e il valore locale iniziale che questo nodo immette nel sistema.
-- `seed_peers`: Una lista iniziale di nodi noti (bootstrap). Un nuovo nodo inizierà a "gossippare" verso questi endpoint, venendo a sua volta scoperto dagli altri.
+- `node_id`: Nome logico univoco del nodo (es. `node-1`). È fondamentale che ogni istanza del cluster abbia un ID distinto.
+- `bind_address`: L'interfaccia di rete locale su cui il nodo si mette in ascolto per il traffico UDP (di solito `0.0.0.0` per ascoltare su tutte le interfacce).
+- `advertise_address`: - `advertise_addr`: L'hostname o l'IP pubblico che questo nodo comunicherà al resto del cluster per farsi contattare. In Docker, coincide tipicamente con il nome del container/servizio DNS.
+- `node_port`: La porta UDP utilizzata dal nodo sia per l'ascolto che per l'invio dei datagrammi gossip.
+- `seed_peers`: Una lista iniziale di nodi noti (bootstrap). Un nodo appena avviato inizierà a contattare questi endpoint per presentarsi, venendo così scoperto dinamicamente dal resto della rete P2P.
+- `gossip_interval_ms`: Frequenza (in millisecondi) con cui si ripete l'event loop epidemico.
+- `fanout`: Numero di peer scelti casualmente dalla tabella di routing a cui inviare il proprio stato durante ogni round di gossip.
+- `membership_timeout_ms`: Tempo massimo di silenzio (in millisecondi) superato il quale un peer viene declassato da `Alive` a `Suspect` (e, dopo un ulteriore periodo, a `Dead`) dal Failure Detector SWIM.
+- `aggregation_type`: Specifica la funzione matematica CRDT da istanziare per il calcolo globale (valori supportati: `sum`, `average`, `min`, `max`, `topk`).
+- `initial_value`: Il contributo numerico iniziale che questo specifico nodo immette nell'aggregazione.
+- `top_k_size`: Parametro utilizzato unicamente quando l'aggregatore scelto è `topk`. Stabilisce la dimensione assoluta $K$ della classifica da calcolare (es. i 3 valori più alti dell'intera rete).
+- `log_level`: Livello di verbosità del logger strutturato JSON (`debug`, `info`, `warn`, `error`).
 
 ---
 
@@ -77,9 +85,22 @@ Modificando il campo `aggregation` nel file YAML, si altera il comportamento del
 
 ---
 
-## Quickstart End-to-End (Docker Compose)
+## Deploy del Cluster tramite Docker Compose
 
 Per eseguire l'intero cluster in un ambiente isolato è possibile utilizzare **Docker Compose**. Alla radice del progetto è presente un `docker-compose.yml` preconfigurato per avviare **8 nodi**.
+
+### Prerequisiti Minimi
+Prima di avviare il cluster, assicurarsi di avere a disposizione:
+- **Docker Engine** in esecuzione;
+- **Docker Compose** plugin (comando `docker compose` o `docker-compose`);
+- **Go installato** (versione `1.26` o superiore) nel caso si voglia eseguire i test o avviare i nodi nativamente senza Docker;
+
+Per verificare rapidamente che l'ambiente sia pronto si possono eseguire i comandi:
+```bash
+docker --version
+docker-compose version
+go version
+```
 
 ### 1. Avvio del Cluster
 ```bash
@@ -109,7 +130,7 @@ docker-compose down
 
 ## Esecuzione Manuale Locale
 
-Se la toolchain Go è installata (`>= 1.22`), è possibile eseguire le istanze manualmente aprendo più terminali.
+Se la toolchain Go è installata (`>= 1.26`), è possibile eseguire le istanze manualmente aprendo più terminali.
 
 Nel Terminale 1 (Nodo A):
 ```bash
