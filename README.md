@@ -10,7 +10,7 @@ L'obiettivo è ottenere una stima globale convergente (es. media dei carichi, ri
 1. [Panoramica e Architettura](#panoramica-e-architettura)
 2. [Configurazione del Nodo](#configurazione-del-nodo)
 3. [Tipi di Aggregazione (CRDT)](#tipi-di-aggregazione-crdt)
-4. [Quickstart End-to-End (Docker Compose)](#quickstart-end-to-end-docker-compose)
+4. [Deploy del Cluster tramite Docker Compose](#deploy-del-cluster-tramite-docker-compose)
 5. [Esecuzione Manuale Locale](#esecuzione-manuale-locale)
 6. [Esecuzione e Struttura dei Test](#esecuzione-e-struttura-di-test)
 7. [Fault Injection e Split-Brain](#fault-injection-e-split-brain)
