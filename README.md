@@ -11,9 +11,9 @@ L'obiettivo è ottenere una stima globale convergente (es. media dei carichi, ri
 2. [Configurazione del Nodo](#configurazione-del-nodo)
 3. [Tipi di Aggregazione (CRDT)](#tipi-di-aggregazione-crdt)
 4. [Deploy del Cluster tramite Docker Compose](#deploy-del-cluster-tramite-docker-compose)
-5. [Esecuzione Manuale Locale](#esecuzione-manuale-locale)
-6. [Esecuzione e Struttura dei Test](#esecuzione-e-struttura-di-test)
-7. [Fault Injection e Split-Brain](#fault-injection-e-split-brain)
+5. [Esecuzione Manuale Locale (Senza Docker)](#esecuzione-manuale-locale-senza-docker)
+6. [Esecuzione e Struttura dei Test](#esecuzione-e-struttura-dei-test)
+7. [Spegnimento Controllato e Fault Injection](#spegnimento-controllato-e-fault-injection)
 8. [Osservabilità e Metriche](#osservabilità-e-metriche)
 9. [Deploy su AWS Learner Lab](#deploy-su-aws-learner-lab)
 
@@ -24,13 +24,13 @@ L'obiettivo è ottenere una stima globale convergente (es. media dei carichi, ri
 Ogni nodo è un'istanza indipendente scritta in Go. Periodicamente, ogni nodo sceglie casualmente $K$ peer (parametro `fanout`) ed invia loro il proprio stato interno tramite protocollo **UDP**. 
 L'architettura è divisa nei seguenti layer:
 
-- **Transport**: Gestisce l'invio e la ricezione asincrona dei pacchetti UDP serializzati in JSON. Basandosi su un'interfaccia astratta, permette di iniettare dinamicamente implementazioni diverse: oltre al layer UDP reale, include lo stub NoopTransport per gli unit test ed un virtual switch in memoria (basato su Go Channels) per gli integration test.
-- **Topology**: Gestisce l'appartenenza al cluster implementando un meccanismo di *Failure Detection* basato sul protocollo **SWIM** (Scalable Weakly-consistent Infection-style Process Group Membership). Si tratta di un protocollo in cui i nodi si monitorano a vicenda in modo decentralizzato, segnando lo stato dei peer come `Alive`, `Suspect` o `Dead` tramite dei timeout. Tramite *piggybacking*, ogni messaggio gossip trasporta anche la vista della topologia del mittente, permettendo la scoperta dinamica dei nuovi nodi.
-- **Message**: Definisce i modelli dati scambiati sulla rete (il payload GossipMessage), tra cui la struttura dello stato CRDT condiviso (AggregationState). Qui risiede la definizione di Epoch e Version, ovvero degli orologi logici scalari utilizzati per imporre un ordine totale agli aggiornamenti e risolvere in modo deterministico i conflitti.
-- **Aggregation**: Motore matematico idempotente. Garantisce che il risultato dell'aggregazione finale rimanga matematicamente corretto e convergente anche se i pacchetti UDP arrivano duplicati o fuori ordine.
-- **Core**: Cuore pulsante dell'istanza (event loop), innescato da un time ticker su una goroutine dedicata. Coordina il campionamento casuale del fanout per i round epidemici, orchestra il Merge asincrono (protetto da lock) degli stati CRDT, ed attua meccanismi di auto-guarigione (come il ping stocastico verso i seed originali) per sanare eventuali partizioni di rete o scenari di split-brain.
-- **Setup**: Modulo dedicato al caricamento ed alla validazione stretta dei parametri operativi. La configurazione viene risolta tramite una catena di fallback: valori di default, parsing di un file YAML ed infine sovrascrittura tramite variabili d'ambiente (strategia per il deploy su Docker Compose ed AWS).
-- **Telemetry**: Sottosistema responsabile del logging strutturato in formato JSON (tramite log/slog) e dell'esposizione asincrona di un server HTTP per l'osservabilità. Espone l'endpoint di liveness /health e l'endpoint /metrics, che permette di interrogare in tempo reale il nodo per conoscere il valore della stima aggregata (estimate), il numero di peer vivi visti dal nodo (known_nodes), il round di esecuzione corrente e l'epoch.
+- **`Transport`**: Gestisce l'invio e la ricezione asincrona dei pacchetti UDP serializzati in JSON. Basandosi su un'interfaccia astratta, permette di iniettare dinamicamente implementazioni diverse: oltre al layer UDP reale, include lo stub NoopTransport per gli unit test ed un virtual switch in memoria (basato su Go Channels) per gli integration test.
+- **`Topology`**: Gestisce l'appartenenza al cluster implementando un meccanismo di *Failure Detection* basato sul protocollo **SWIM** (Scalable Weakly-consistent Infection-style Process Group Membership). Si tratta di un protocollo in cui i nodi si monitorano a vicenda in modo decentralizzato, segnando lo stato dei peer come `Alive`, `Suspect` o `Dead` tramite dei timeout. Tramite *piggybacking*, ogni messaggio gossip trasporta anche la vista della topologia del mittente, permettendo la scoperta dinamica dei nuovi nodi.
+- **`Message`**: Definisce i modelli dati scambiati sulla rete (il payload GossipMessage), tra cui la struttura dello stato CRDT condiviso (AggregationState). Qui risiede la definizione di Epoch e Version, ovvero degli orologi logici scalari utilizzati per imporre un ordine totale agli aggiornamenti e risolvere in modo deterministico i conflitti.
+- **`Aggregation`**: Motore matematico idempotente. Garantisce che il risultato dell'aggregazione finale rimanga matematicamente corretto e convergente anche se i pacchetti UDP arrivano duplicati o fuori ordine.
+- **`Core`**: Cuore pulsante dell'istanza (event loop), innescato da un time ticker su una goroutine dedicata. Coordina il campionamento casuale del fanout per i round epidemici, orchestra il Merge asincrono (protetto da lock) degli stati CRDT, ed attua meccanismi di auto-guarigione (come il ping stocastico verso i seed originali) per sanare eventuali partizioni di rete o scenari di split-brain.
+- **`Setup`**: Modulo dedicato al caricamento ed alla validazione stretta dei parametri operativi. La configurazione viene risolta tramite una catena di fallback: valori di default, parsing di un file YAML ed infine sovrascrittura tramite variabili d'ambiente (strategia per il deploy su Docker Compose ed AWS).
+- **`Telemetry`**: Sottosistema responsabile del logging strutturato in formato JSON (tramite log/slog) e dell'esposizione asincrona di un server HTTP per l'osservabilità. Espone l'endpoint di liveness /health e l'endpoint /metrics, che permette di interrogare in tempo reale il nodo per conoscere il valore della stima aggregata (estimate), il numero di peer vivi visti dal nodo (known_nodes), il round di esecuzione corrente e l'epoch.
 
 ---
 
@@ -59,7 +59,7 @@ log_level: "info"
 ### Parametri Chiave
 - `node_id`: Nome logico univoco del nodo (es. `node-1`). È fondamentale che ogni istanza del cluster abbia un ID distinto.
 - `bind_address`: L'interfaccia di rete locale su cui il nodo si mette in ascolto per il traffico UDP (di solito `0.0.0.0` per ascoltare su tutte le interfacce).
-- `advertise_address`: - `advertise_addr`: L'hostname o l'IP pubblico che questo nodo comunicherà al resto del cluster per farsi contattare. In Docker, coincide tipicamente con il nome del container/servizio DNS.
+- `advertise_address`: L'hostname o l'IP pubblico che questo nodo comunicherà al resto del cluster per farsi contattare. In Docker, coincide tipicamente con il nome del container/servizio DNS.
 - `node_port`: La porta UDP utilizzata dal nodo sia per l'ascolto che per l'invio dei datagrammi gossip.
 - `seed_peers`: Una lista iniziale di nodi noti (bootstrap). Un nodo appena avviato inizierà a contattare questi endpoint per presentarsi, venendo così scoperto dinamicamente dal resto della rete P2P.
 - `gossip_interval_ms`: Frequenza (in millisecondi) con cui si ripete l'event loop epidemico.
@@ -115,11 +115,23 @@ Questo comando:
 ```bash
 docker-compose logs -f
 ```
-È possibile visualizzare un log strutturato simile al seguente:
+È possibile visualizzare un log strutturato in formato JSON il cui output è simile al seguente:
 ```
-node1 | time=... level=INFO msg="stima corrente" estimate=30.0000 known_nodes=8 round=15
+gossip-node1  | {"time":"2026-09-03T10:42:32.919Z","level":"INFO","msg":"stima corrente","node_id":"node-1","aggregation":"topk","estimate":"80.0000","known_nodes":8,"round":18}
+gossip-node1  | {"time":"2026-09-03T10:42:32.919Z","level":"INFO","msg":"top-k elementi","node_id":"node-1","top_k":[60,70,80]}
 ```
-I nodi partono con valori iniziali diversi e raggiungono il consenso distribuito rapidamente, mostrando tutti lo stesso valore `estimate`.
+Dettaglio del log:
+- **`time`**: Timestamp dell'evento.
+- **`level`**: Gravità dell'evento (INFO, DEBUG, WARN, ERROR).
+- **`msg`**: Breve descrizione testuale dell'evento loggato per facilitarne la lettura (es. "stima corrente" o "top-k elementi").
+- **`node_id`**: L'identificativo logico del nodo che sta scrivendo il log.
+- **`aggregation`**: L'aggregazione matematica CRDT attualmente in esecuzione.
+- **`estimate`**: Il risultato numerico convergente calcolato dal nodo in questo esatto momento.
+- **`known_nodes`**: Il numero di peer all'interno del cluster attualmente riconosciuti come Alive dal Failure Detector.
+- **`round`**: Il contatore dei cicli gossip (tick periodici) completati dal nodo dall'accensione.
+- **`top_k`**: (Speciale) Array mostrato solo se l'aggregazione in uso è topk, che elenca i valori in classifica.
+
+Osservando i log in tempo reale, si può osservare che i nodi partono con stime (estimate) isolate, ma dopo pochissimi round convergono tutti simultaneamente allo stesso esatto valore globale.
 
 ### 3. Spegnimento
 ```bash
@@ -128,64 +140,86 @@ docker-compose down
 
 ---
 
-## Esecuzione Manuale Locale
+## Esecuzione Manuale Locale (Senza Docker)
 
 Se la toolchain Go è installata (`>= 1.26`), è possibile eseguire le istanze manualmente aprendo più terminali.
+**Nota bene:** Il comando `go run` avvia **sempre e solo una singola istanza alla volta**. Per simulare la rete, bisogna aprire più finestre (o tab) del terminale ed avviare un nodo in ciascuna, passandogli un file YAML dedicato per evitare conflitti di porta. Ad esempio:
 
-Nel Terminale 1 (Nodo A):
+**Terminale 1 (Avvia il Nodo 1):**
 ```bash
 go run ./cmd/agent/main.go --config configs/node1.yaml
 ```
 
-Nel Terminale 2 (Nodo B):
+**Terminale 2 (Avvia il Nodo 2):**
 ```bash
 go run ./cmd/agent/main.go --config configs/node2.yaml
 ```
 
-Il nodo B, utilizzando la direttiva `seed_peers` verso la porta locale del nodo A, lo scoprirà e i due inizieranno a unire i propri stati tramite protocollo gossip.
+**Terminale 3 (Avvia il Nodo 3):**
+```bash
+go run ./cmd/agent/main.go --config configs/node3.yaml
+```
+
+Avviati i nodi successivi al primo, questi utilizzeranno la direttiva `seed_peers` (configurata nei loro YAML) per contattare la porta locale del Nodo 1. In questo modo si scopriranno a vicenda creando dinamicamente la rete P2P ed inizieranno a scambiarsi gli stati.
 
 ---
 
 ## Esecuzione e Struttura dei Test
 
-L'intera architettura è coperta da una forte suite di unit test e integration test basata su un'interfaccia Transport *In-Memory*, la quale simula il traffico di rete in memoria senza allocare vere porte UDP.
+L'intera architettura è coperta da una forte suite di unit test ed integration test basata su un'interfaccia Transport *In-Memory*, la quale simula il traffico di rete in memoria senza allocare vere porte UDP.
 
 ### Comando generale per l'esecuzione
 ```bash
 go test ./... -v
 ```
+> **Nota per utenti Windows (AppLocker / Antivirus):**
+> Se eseguendo `go test ./...` si riceve l'errore `An Application Control policy has blocked this file`, si può compilare ed eseguire il test manualmente nella root del progetto:
+> ```powershell
+> cd tests/integration
+> go test -c -o ../../integration.test.exe
+> cd ../..
+> ./integration.test.exe
+> ```
 
 ### Struttura dei Test
-- **`tests/aggregation/...`**: Verifica puramente matematica. Assicura che le formule di unione (merge CRDT) ignorino eventuali messaggi duplicati, preferiscano sempre il payload con la versione più alta e applichino correttamente le regole di idempotenza.
+- **`tests/aggregation/...`**: Verifica puramente matematica. Assicura che le formule di unione (merge CRDT) ignorino eventuali messaggi duplicati, preferiscano sempre il payload con la versione più alta ed applichino correttamente le regole di idempotenza.
 - **`tests/topology/...`**: Analizza il "Topology Manager" isolato, verificando l'esattezza delle transizioni di stato (`Alive -> Suspect -> Dead`) a seguito di timeout simulati.
-- **`tests/integration/...`**: Rappresenta la suite **end-to-end**. Inizializza interi nodi connessi a uno switch virtuale. Comprende test complessi come:
+- **`tests/integration/...`**: Rappresenta la suite **end-to-end**. Inizializza interi nodi connessi ad uno switch virtuale. Comprende test come:
   - `TestClusterConvergenza_Average` e `TestClusterConvergenza_Sum`: Avviano molteplici nodi e verificano che tutti raggiungano lo stesso aggregato convergente.
   - `TestRobustezza_PartizioneRete`: Simula la divisione della rete in due sottoreti isolate per testare i meccanismi di healing (Split-Brain).
   - `TestRobustezza_MessaggiDuplicati`: Iniettano pacchetti rindondanti per provare l'efficacia del CRDT contro le anomalie tipiche del protocollo UDP.
 
 ---
 
-## Fault Injection
+## Spegnimento Controllato e Fault Injection
 
-Questa sezione illustra come collaudare manualmente la robustezza del codice introducendo guasti nel cluster su Docker. 
-Per facilitare queste operazioni, nella cartella `scripts/` sono forniti degli strumenti dedicati:
+Questa sezione illustra come collaudare manualmente o automaticamente la robustezza del codice introducendo guasti nel cluster su Docker. Per facilitare queste operazioni, nella cartella `scripts/` sono forniti degli strumenti dedicati:
+1. **`fault_dashboard.ps1` (o `.sh`)**: Un pannello interattivo a riga di comando che elenca i container in esecuzione e permette di arrestarli (innescando un *Graceful Leave*) o riavviarli premendo semplicemente un tasto.
+2. **`auto_crash_test.sh`**: Uno script di Chaos Engineering automatizzato che esegue veri e propri *Hard Crash* casuali (kill dei container) sui nodi e ne verifica i tempi di riconvergenza automatica tramite il protocollo SWIM.
 
-1. **`fault_dashboard.ps1` (o `.sh`)**: Un pannello interattivo a riga di comando che elenca i container in esecuzione e permette di spegnerli (`Stop`) o riavviarli (`Start`) premendo semplicemente un tasto.
-2. **`auto_crash_test.sh`**: Uno script di Chaos Engineering automatizzato che fa cadere casualmente i nodi e ne verifica i tempi di riconvergenza, garantendo che lo stato sopravviva in maniera automatizzata.
-
-### Test Manuale di Crash & Rejoin
-Mentre il cluster è in esecuzione (`docker-compose up -d`), è possibile arrestare un'istanza forzatamente usando lo script o il comando:
-```bash
-docker stop gossip-node3
+### Spegnimento Controllato (Graceful Leave)
+Se un nodo viene interrotto volontariamente (es. premendo `Ctrl+C` nel terminale o usando `docker stop`), simulando uno spegnimento volontario, l'applicazione intercetta il segnale del sistema operativo ed esegue un *graceful shutdown*. Invece di scomparire nel nulla, il nodo annuncia attivamente la sua uscita inviando un messaggio di "Leave" ai suoi peer. 
+Questo permette al cluster di rimuovere il nodo dai calcoli in modo istantaneo, senza dover attendere l'intervento del Failure Detector.
+Log atteso in uscita:
+```json
+{"time":"2026-09-03T16:55:05.626Z","level":"INFO","msg":"shutdown in corso","node_id":"node-2"}
+{"time":"2026-09-03T16:55:08.367Z","level":"INFO","msg":"Leave announcement inviato a 2 peer"}
 ```
+
+### Test di Crash & Rejoin
+Per collaudare la robustezza del protocollo contro i guasti improvvisi di alimentazione o rete, si può simulare un Hard Crash. Mentre il cluster è in esecuzione (`docker-compose up -d`), è possibile arrestare un'istanza forzatamente senza darle il tempo di inviare il Leave, usando ad esempio un comando del tipo:
+```bash
+docker kill gossip-node3
+```
+
 Comportamento atteso:
-- I pacchetti destinati a `node3` iniziano a cadere.
-- Entro la soglia di `membership_timeout_ms`, i nodi adiacenti declasseranno `node3` a `Suspect` e, conseguentemente, a `Dead`.
-- Appena il nodo viene etichettato come morto, i nodi vivi ricalcolano l'aggregazione astraendo il contributo di `node3` dal totale globale.
+- I pacchetti destinati a `node3` iniziano a cadere nel vuoto.
+- Entro la soglia di `membership_timeout_ms`, i nodi adiacenti, non ricevendo più l'heartbeat, declasseranno `node3` a `Suspect` e, conseguentemente, a `Dead`.
+- Appena il nodo viene etichettato come morto, i nodi vivi ricalcolano l'aggregazione astraendo dinamicamente il contributo di `node3` dal totale globale.
 
 Riavviando il nodo (`docker start gossip-node3`):
 - `node3` si risveglia in modalità "stateless". Genera un nuovo `Incarnation Number` basato sull'Epoch time corrente (superiore a quello in cache negli altri nodi).
-- Gli altri nodi ricevono il gossip, confrontano l'Incarnation, rimuovono lo stato `Dead` dalla tabella e l'intera rete riconverge nuovamente.
+- Gli altri nodi ricevono il gossip, notano l'Incarnation superiore, rimuovono lo stato `Dead` dalla tabella e l'intera rete riconverge nuovamente includendo il nodo redivivo.
 
 ---
 
@@ -194,16 +228,29 @@ Riavviando il nodo (`docker start gossip-node3`):
 L'Engine espone nativamente un server HTTP integrato, pensato per l'esposizione di **metriche**, ovvero un riepilogo in tempo reale dello stato di salute e dei parametri calcolati dall'applicazione (stima attuale, numero di peers attivi).
 
 Se un nodo è configurato sulla porta UDP `7001`, il suo server HTTP verrà avviato per convenzione sulla porta `7001 + 1000 = 8001`. 
-*Si fa così per evitare conflitti tra il traffico Gossip (UDP) e il traffico di monitoraggio (TCP) sulla stessa istanza, ricavando deterministicamente la porta di servizio senza richiedere configurazioni separate.*
+*Si fa così per evitare conflitti tra il traffico Gossip (UDP) ed il traffico di monitoraggio (TCP) sulla stessa istanza, ricavando deterministicamente la porta di servizio senza richiedere configurazioni separate.*
 
 Endpoints disponibili:
 - **`GET /health`**: Restituisce `{ "status": "ok" }` se l'istanza è responsiva.
-- **`GET /metrics`**: Esporta in formato **JSON** il valore corrente calcolato dal CRDT, i tick completati e il numero di peer riconosciuti.
+- **`GET /metrics`**: Esporta in formato **JSON** il valore corrente calcolato dal CRDT, i tick completati ed il numero di peer riconosciuti.
 
-È possibile interrogare l'istanza localmente eseguendo:
+È possibile interrogare l'istanza localmente eseguendo un comando da terminale:
 ```bash
 curl http://localhost:8001/metrics
+curl http://localhost:8001/health
 ```
+Grazie al port-mapping configurato nel docker-compose.yml, avviando il cluster in locale sul PC è possibile interrogare i nodi direttamente tramite un qualsiasi browser, incollando nella barra degli indirizzi:
+
+- http://localhost:8001/metrics (per ispezionare il Nodo 1)
+- http://localhost:8002/metrics (per ispezionare il Nodo 2)
+- http://localhost:8003/metrics (per ispezionare il Nodo 3)
+- ...e così via per gli altri nodi.
+
+Per verificare lo stato di salute (Health Check):
+
+- http://localhost:8001/health (Risponderà {"status":"ok"} se il nodo è attivo e funzionante)
+
+Aggiornando la pagina del browser si può vedere l'avanzamento dei round ed il valore aggregato (estimate) cambiare in tempo reale, finché non raggiungerà la perfetta convergenza con il resto del cluster.
 
 ---
 
