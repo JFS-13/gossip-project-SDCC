@@ -25,7 +25,7 @@ Ogni nodo è un'istanza indipendente scritta in Go. Periodicamente, ogni nodo sc
 L'architettura è divisa nei seguenti layer:
 
 - **`Transport`**: Gestisce l'invio e la ricezione asincrona dei pacchetti UDP serializzati in JSON. Basandosi su un'interfaccia astratta, permette di iniettare dinamicamente implementazioni diverse: oltre al layer UDP reale, include lo stub NoopTransport per gli unit test ed un virtual switch in memoria (basato su Go Channels) per gli integration test.
-- **`Topology`**: Gestisce l'appartenenza al cluster implementando un meccanismo di *Failure Detection* basato sul protocollo **SWIM** (Scalable Weakly-consistent Infection-style Process Group Membership). Si tratta di un protocollo in cui i nodi si monitorano a vicenda in modo decentralizzato, segnando lo stato dei peer come `Alive`, `Suspect` o `Dead` tramite dei timeout. Tramite *piggybacking*, ogni messaggio gossip trasporta anche la vista della topologia del mittente, permettendo la scoperta dinamica dei nuovi nodi.
+- **`Topology`**: Gestisce l'appartenenza al cluster implementando un meccanismo di *Failure Detection* basato sul protocollo **SWIM** (Scalable Weakly-consistent Infection-style Process Group Membership). Si tratta di un protocollo in cui i nodi si monitorano a vicenda in modo decentralizzato, segnando lo stato dei peer come `Alive`, `Suspect` o `Dead` tramite dei timeout. Per evitare i conflitti ed i falsi positivi (es. un nodo che rientra dopo un crash), il protocollo associa ad ogni nodo un **Incarnation Number** (un orologio logico monotonico). Tramite *piggybacking*, ogni messaggio gossip trasporta anche la vista della topologia del mittente, permettendo la scoperta dinamica dei nuovi nodi.
 - **`Message`**: Definisce i modelli dati scambiati sulla rete (il payload GossipMessage), tra cui la struttura dello stato CRDT condiviso (AggregationState). Qui risiede la definizione di Epoch e Version, ovvero degli orologi logici scalari utilizzati per imporre un ordine totale agli aggiornamenti e risolvere in modo deterministico i conflitti.
 - **`Aggregation`**: Motore matematico idempotente. Garantisce che il risultato dell'aggregazione finale rimanga matematicamente corretto e convergente anche se i pacchetti UDP arrivano duplicati o fuori ordine.
 - **`Core`**: Cuore pulsante dell'istanza (event loop), innescato da un time ticker su una goroutine dedicata. Coordina il campionamento casuale del fanout per i round epidemici, orchestra il Merge asincrono (protetto da lock) degli stati CRDT, ed attua meccanismi di auto-guarigione (come il ping stocastico verso i seed originali) per sanare eventuali partizioni di rete o scenari di split-brain.
@@ -256,7 +256,7 @@ Aggiornando la pagina del browser si può vedere l'avanzamento dei round ed il v
 
 ## Deploy su AWS Learner Lab
 
-Questa sezione spiega passo-passo come distribuire il progetto in ambiente cloud su un'istanza **Amazon EC2**, in modo da testare il cluster (ridimensionato per il collaudo a **5 macchine/nodi containerizzati**).
+Questa sezione spiega passo-passo come distribuire il progetto in ambiente cloud su un'istanza **Amazon EC2**, in modo da testare il cluster (in questo esempio ridimensionato per il collaudo a **5 macchine/nodi containerizzati**).
 
 ### 1. Prerequisiti su AWS
 - **Istanza EC2**: Lanciare un'istanza di tipo `t3.micro (o t2.micro)` (idonea al Free Tier del Learner Lab) utilizzando l'OS **Amazon Linux 2023** (o Ubuntu).
@@ -270,23 +270,29 @@ Connettersi all'istanza via SSH usando la chiave `.pem` fornita dal Learner Lab:
 ```bash
 ssh -i "vockey.pem" ec2-user@<IP-PUBBLICO-EC2>
 ```
-Su Amazon Linux 2023, installare Docker e avviare il servizio:
+Se si usa l'istanza Amazon Linux 2023, installare Docker ed avviare il servizio con questi comandi:
 ```bash
 sudo yum update -y
 sudo yum install docker -y
 sudo service docker start
 sudo usermod -a -G docker ec2-user
 ```
-*(Nota: Disconnettersi e riconnettersi all'SSH per applicare i permessi del gruppo docker).*
+Se invece si usa l'istanza Ubuntu:
+```bash
+sudo apt update
+sudo apt install docker.io docker-compose-v2 -y
+sudo usermod -a -G docker ubuntu
+```
+*Nota: dopo aver aggiunto l'utente al gruppo `docker`, disconnettersi (esci dall'SSH) e riconnettersi per rendere effettive le modifiche senza usare `sudo`.*
 
 ### 3. Trasferimento dei File
-Copiare l'intera cartella del progetto dal proprio computer locale all'istanza EC2 usando `scp`:
+Bisogna copiare il progetto sull'istanza EC2, usando `git clone` se è su un repository pubblico, oppure `scp` per copiare i file dal computer locale:
 ```bash
 scp -i "vockey.pem" -r ./gossip-project ec2-user@<IP-PUBBLICO-EC2>:/home/ec2-user/
 ```
 
 ### 4. Avvio del Cluster
-Entrare nella cartella trasferita ed eseguire il build e lo start del cluster Docker Compose in background. Nel collaudo AWS, limiteremo l'avvio a **5 macchine** per evitare sovraccarichi sulla t2.micro:
+Entrare nella directory del progetto ed eseguire il build e lo start del cluster Docker Compose in background. Nel collaudo AWS, si limita l'avvio a **5 macchine** per evitare sovraccarichi sulla t2.micro:
 ```bash
 cd gossip-project
 docker compose up -d --build node1 node2 node3 node4 node5
@@ -305,7 +311,7 @@ curl http://<IP-PUBBLICO-EC2>:8005/metrics
 Entrambi i nodi dovranno rispondere con un JSON che mostrerà la medesima `estimate` e la conoscenza condivisa dell'intera topologia (`"known_nodes": 5`).
 
 ### 6. Shutdown e Pulizia
-Per fermare l'esperimento, eseguire un graceful shutdown liberando le risorse (fondamentale per non sprecare il budget accademico del Learner Lab):
+Per fermare l'esperimento, eseguire un graceful shutdown liberando le risorse (fondamentale per non sprecare il budget del Learner Lab):
 ```bash
 docker compose down
 ```
