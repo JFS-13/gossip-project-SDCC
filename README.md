@@ -391,3 +391,8 @@ sudo docker run -d --name gossip-node1 \
 ```
 
 *Attenzione: Affinché il cluster converga in modo corretto, è imperativo che tutti i nodi della rete vengano riavviati con il medesimo `AGGREGATION_TYPE`.*
+
+### 6. Prove di Collaudo in Cloud
+Con il cluster è operativo sulle macchine AWS, è possibile eseguire le medesime prove di stress illustrate nelle sezioni precedenti per verificarne il comportamento su una rete geografica:
+- **Lettura dei Log**: Per ispezionare il payload JSON dei messaggi Gossip di uno specifico nodo, eseguire `sudo docker logs -f gossip-node1` (vedi [Sezione 4](#2-osservazione-dei-log)).
+- **Fault Tolerance (Crash & Rejoin)**: Provare ad uccidere uno o più processi (es. `sudo docker kill gossip-node3`), osservare l'aggregazione variare in tempo reale dal browser, e successivamente riavviarlo/i per testarne la riconvergenza automatica (vedi [Sezione 7](#test-di-crash--rejoin)).
