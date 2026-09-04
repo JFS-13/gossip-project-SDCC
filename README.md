@@ -254,64 +254,140 @@ Aggiornando la pagina del browser si può vedere l'avanzamento dei round ed il v
 
 ---
 
+Certamente, ecco la Sezione 9 in puro formato Markdown (senza il blocco di codice esterno), così puoi copiarla e incollarla direttamente nel tuo editor!
+
+***
+
 ## Deploy su AWS Learner Lab
 
-Questa sezione spiega passo-passo come distribuire il progetto in ambiente cloud su un'istanza **Amazon EC2**, in modo da testare il cluster (in questo esempio ridimensionato per il collaudo a **5 macchine/nodi containerizzati**).
+Questa sezione illustra come testare l'architettura cloud su Amazon Web Services, utilizzando l'ambiente **AWS Academy Learner Lab**. Vengono proposte due metodologie: una rapida su singola istanza ed una distribuita su 5 macchine fisiche distinte.
 
-### 1. Prerequisiti su AWS
-- **Istanza EC2**: Lanciare un'istanza di tipo `t3.micro (o t2.micro)` (idonea al Free Tier del Learner Lab) utilizzando l'OS **Amazon Linux 2023** (o Ubuntu).
-- **Security Group**: Affinché sia possibile interrogare i nodi dall'esterno, è necessario aprire le seguenti porte nelle regole di *Inbound* (In entrata):
-  - `TCP 22`: Per l'accesso SSH.
-  - `TCP 8001-8005`: Per permettere l'accesso agli endpoint `/metrics` dei 5 nodi containerizzati.
-  - *(Le porte UDP 7001-7005 non devono essere esposte al pubblico, in quanto i nodi comunicheranno tra loro internamente alla subnet virtuale creata da Docker).*
+### Opzione A: Cluster Simulato (1 EC2, 8 Nodi containerizzati)
+Questa soluzione è ideale per un test rapido. Si utilizza una singola istanza fisica per ospitare l'intero cluster containerizzato, in modo identico all'esecuzione locale sulla propria macchina.
 
-### 2. Installazione di Docker sull'Istanza
-Connettersi all'istanza via SSH usando la chiave `.pem` fornita dal Learner Lab:
-```bash
-ssh -i "vockey.pem" ec2-user@<IP-PUBBLICO-EC2>
-```
-Se si usa l'istanza Amazon Linux 2023, installare Docker ed avviare il servizio con questi comandi:
-```bash
-sudo yum update -y
-sudo yum install docker -y
-sudo service docker start
-sudo usermod -a -G docker ec2-user
-```
-Se invece si usa l'istanza Ubuntu:
-```bash
-sudo apt update
-sudo apt install docker.io docker-compose-v2 -y
-sudo usermod -a -G docker ubuntu
-```
-*Nota: dopo aver aggiunto l'utente al gruppo `docker`, disconnettersi (esci dall'SSH) e riconnettersi per rendere effettive le modifiche senza usare `sudo`.*
+1. **Avvio dell'Istanza**: Da AWS Academy (Canvas), avviare il Learner Lab (**Start Lab**) ed accedere alla console AWS. Creare una singola istanza EC2 di tipo `t3.micro` (o `t2.micro`, incluse nel piano gratuito) con immagine software (AMI) **Amazon Linux 2023** (o **Ubuntu**) e chiave `vockey`. 
+2. **Security Group**: Nelle impostazioni di rete, creare un gruppo di sicurezza:
+   - Lasciare la regola SSH esistente (protocollo `TCP` con intervallo di porte `22`).
+   - Aggiungere regola del gruppo di sicurezza `TCP personalizzato` con intervallo di porte `8001 - 8008` (per interrogare gli endpoint delle metriche HTTP dal browser) e tipo di origine `ovunque` che permettono a tutti gli indirizzi IP di accedere all'istanza.
+   - Non c'è bisogno di aprire le porte UDP verso il mondo esterno siccome i nodi comunicheranno privatamente tra loro.
+   - Lasciare le configurazioni di archiviazione esistenti.
+3. **Setup dell'Ambiente**: Connettersi via SSH all'istanza (dalla console AWS) ed installare Docker e Git sul terminale che si apre:
+   ```bash
+   sudo dnf update -y
+   sudo dnf install git docker -y
+   sudo systemctl start docker
+   sudo systemctl enable docker
+   sudo usermod -aG docker ec2-user
+   newgrp docker
+   ```
+4. **Installazione Docker Compose**:
+    ```bash
+    sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    sudo chmod +x /usr/local/bin/docker-compose
+    ```
+5. **Avvio del Cluster**: Clonare il repository ed eseguire il deployment tramite Docker Compose:
+   ```bash
+   git clone https://github.com/JFS-13/gossip-project-SDCC.git
+   cd gossip-project-SDCC
+   docker build -t gossip-agent:local .
+   docker compose up -d
+   ```
+   Questo avvierà istantaneamente tutti gli 8 nodi. Le metriche saranno visibili (ad esempio per il nodo 1) all'indirizzo `http://<IP-PUBBLICO-EC2>:8001/metrics`.
+6. **Spegnimento**: Per non prosciugare il budget disponibile:
+  1. Nel terminale eseguire `docker-compose down`, per cancellare i container liberando la memoria.
+  2. Sulla dashboard di AWS EC2, selezionare l'istanza e fare **Stato dell'istanza -> Arresta istanza** (così non si perdono i dati e la prossima volta basterà riaccenderla). Cliccando su **Termina istanza** invece si cancella completamente l'istanza e bisognerà ricrearla al nuovo accesso.
+  3. Tornare sulla scheda di Canvas (AWS Academy) e cliccare **End Lab**.
+---
 
-### 3. Trasferimento dei File
-Bisogna copiare il progetto sull'istanza EC2, usando `git clone` se è su un repository pubblico, oppure `scp` per copiare i file dal computer locale:
+### Opzione B: Rete Puramente Distribuita (5 Macchine EC2 Separate)
+Questo approccio rispecchia un ambiente di produzione P2P. Si allocano 5 istanze EC2 distinte (meno delle 8 locali per semplicità) che comunicano esclusivamente attraverso la rete fisica del VPC di Amazon.
+
+#### 1. Creazione delle 5 Istanze
+Dalla console AWS (sezione EC2 -> Istanze):
+- Cliccare su **Avvia istanze**.
+- **Numero di istanze**: Impostare a **`5`** (per crearle in blocco).
+- **Nome**: `Gossip-Node` (è possibile rinominarle in seguito come `Node-1`, `Node-2`, ecc.).
+- **AMI**: Scegliere **Amazon Linux 2023** o **Ubuntu**.
+- **Tipo**: Lasciare `t3.micro` (`t2.micro`) con Key pair `vockey`.
+- **Security Group Unificato**: Oltre alla regola **TCP 22** (SSH) e **TCP 8001 - 8005** personalizzato, è imperativo aggiungere la regola **UDP personalizzato, porte `7001 - 7005`** in entrata, per permettere al traffico Gossip di attraversare le reti cloud. Impostare sempre tipo di origine `ovunque` e lasciare le configurazioni di archiviazzione esistenti.
+
+#### 2. Preparazione (su tutte le 5 macchine)
+Tramite *EC2 Instance Connect*, aprire i 5 terminali. Su **ciascuno** di essi eseguire l'installazione, clonare il codice ed effettuare la build dell'immagine base:
 ```bash
-scp -i "vockey.pem" -r ./gossip-project ec2-user@<IP-PUBBLICO-EC2>:/home/ec2-user/
+sudo dnf update -y
+sudo dnf install git docker -y
+sudo systemctl start docker
+sudo usermod -aG docker ec2-user
+newgrp docker
+
+git clone https://github.com/JFS-13/gossip-project-SDCC.git
+cd gossip-project-SDCC
+sudo docker build -t gossip-agent:local .
 ```
 
-### 4. Avvio del Cluster
-Entrare nella directory del progetto ed eseguire il build e lo start del cluster Docker Compose in background. Nel collaudo AWS, si limita l'avvio a **5 macchine** per evitare sovraccarichi sulla t2.micro:
+#### 3. Iniezione degli IP e Avvio
+Poiché in AWS gli IP Pubblici cambiano ad ogni avvio del Learner Lab, l'applicativo è stato costruito per accettare un *override* delle configurazioni YAML tramite Variabili d'Ambiente (`-e`). 
+*(Appuntarsi gli IP IPv4 Pubblici dalla console e sostituirli al posto di `<IP_PUBBLICO_NODE_X>` nei comandi seguenti).*
+
+**Sul terminale di Node-1:**
 ```bash
-cd gossip-project
-docker compose up -d --build node1 node2 node3 node4 node5
-```
-Verificare che i 5 container siano in esecuzione:
-```bash
-docker compose ps
+sudo docker run -d --name gossip-node1 \
+  -p 8001:8001 -p 7001:7001/udp \
+  -v $(pwd)/configs:/app/configs:ro \
+  -e ADVERTISE_ADDR="<IP_PUBBLICO_NODE_1>" \
+  -e SEED_PEERS="<IP_PUBBLICO_NODE_2>:7002,<IP_PUBBLICO_NODE_3>:7003" \
+  -e AGGREGATION_TYPE="topk" \
+  gossip-agent:local --config /app/configs/node1.yaml
 ```
 
-### 5. Verifica della Convergenza (Osservabilità)
-Con il cluster attivo su EC2, è possibile verificarne la convergenza dal proprio computer locale o dal browser, semplicemente interrogando l'IP pubblico dell'istanza sulle porte TCP aperte precedentemente:
+**Sul terminale di Node-2:**
 ```bash
-curl http://<IP-PUBBLICO-EC2>:8001/metrics
-curl http://<IP-PUBBLICO-EC2>:8005/metrics
+sudo docker run -d --name gossip-node2 \
+  -p 8002:8002 -p 7002:7002/udp \
+  -v $(pwd)/configs:/app/configs:ro \
+  -e ADVERTISE_ADDR="<IP_PUBBLICO_NODE_2>" \
+  -e SEED_PEERS="<IP_PUBBLICO_NODE_1>:7001,<IP_PUBBLICO_NODE_3>:7003" \
+  -e AGGREGATION_TYPE="topk" \
+  gossip-agent:local --config /app/configs/node2.yaml
 ```
-Entrambi i nodi dovranno rispondere con un JSON che mostrerà la medesima `estimate` e la conoscenza condivisa dell'intera topologia (`"known_nodes": 5`).
 
-### 6. Shutdown e Pulizia
-Per fermare l'esperimento, eseguire un graceful shutdown liberando le risorse (fondamentale per non sprecare il budget del Learner Lab):
+*(Replicare in modo logico i comandi per i nodi 3, 4 e 5, avendo cura di modificare i nomi dei container `gossip-nodeX`, i port mapping `-p 800X:800X -p 700X:700X/udp`, la config `--config /app/configs/nodeX.yaml` ed incrociando correttamente la lista dei `SEED_PEERS`)*.
+
+#### 4. Verifica della Convergenza e Spegnimento Sicuro
+Visitando `http://<IP_PUBBLICO_NODE_X>:800X/metrics` sul proprio browser si potrà osservare che i nodi aggiornano la topologia (marcando `Alive` gli IP pubblici degli altri) e convergono alla stessa stima aggregata.
+
+Alla fine, per non consumare il budget del Learner Lab, arrestare i container inviando il segnale di Graceful Leave:
 ```bash
-docker compose down
+sudo docker stop gossip-node1
 ```
+Infine, dalla console AWS EC2, selezionare le 5 macchine, cliccare su **Stato dell'istanza** ed eseguire **Arresta istanza**.
+
+### 5. Cambiare il Tipo di Aggregazione (CRDT)
+L'architettura supporta 5 diverse strategie matematiche (`average`, `sum`, `min`, `max`, `topk`). Per cambiare il calcolo effettuato dal cluster cloud:
+
+- **Se si usa l'Opzione A**: I file di configurazione fisici risiedono nella cartella `configs/` sull'istanza EC2. Invece di aprirli a mano uno ad uno, si può usare un comando di sostituzione rapida per aggiornare tutti gli 8 nodi contemporaneamente. Ad esempio, per passare dalla vecchia aggregazione `topk` alla nuova `average`:
+  ```bash
+  sed -i 's/aggregation_type: "topk"/aggregation_type: "average"/g' configs/*.yaml
+  ```
+  Fatto ciò, si lancia di nuovo il comando `docker-compose up -d`: Docker rileverà automaticamente che i file sono cambiati e riavvierà i container applicando le nuove regole matematiche.
+
+- **Se si usa l'Opzione B**: È sufficiente modificare la variabile d'ambiente direttamente nel comando di avvio, sostituendo il flag `-e AGGREGATION_TYPE="topk"` con l'operazione desiderata. Poiché Docker non permette di creare due container con lo stesso nome, **prima di avviare il nuovo nodo** assicurarsi di distruggere il precedente eseguendo:
+  ```bash
+  sudo docker rm -f gossip-nodeX
+  ```
+
+**Quindi, ad esempio, sul terminale di Node-1:**
+```bash
+sudo docker rm -f gossip-node1 
+
+sudo docker run -d --name gossip-node1 \
+  -p 8001:8001 -p 7001:7001/udp \
+  -v $(pwd)/configs:/app/configs:ro \
+  -e ADVERTISE_ADDR="<IP_PUBBLICO_NODE_1>" \
+  -e SEED_PEERS="<IP_PUBBLICO_NODE_2>:7002,<IP_PUBBLICO_NODE_3>:7003" \
+  -e AGGREGATION_TYPE="average" \
+  gossip-agent:local \
+  --config /app/configs/node1.yaml
+```
+
+*Attenzione: Affinché il cluster converga in modo corretto, è imperativo che tutti i nodi della rete vengano riavviati con il medesimo `AGGREGATION_TYPE`.*
