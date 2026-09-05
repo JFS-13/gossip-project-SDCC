@@ -268,7 +268,7 @@ Questa soluzione è ideale per un test rapido. Si utilizza una singola istanza f
 1. **Avvio dell'Istanza**: Da AWS Academy (Canvas), avviare il Learner Lab (**Start Lab**) ed accedere alla console AWS. Creare una singola istanza EC2 di tipo `t3.micro` (o `t2.micro`, incluse nel piano gratuito) con immagine software (AMI) **Amazon Linux 2023** (o **Ubuntu**) e chiave `vockey`. 
 2. **Security Group**: Nelle impostazioni di rete, creare un gruppo di sicurezza:
    - Lasciare la regola SSH esistente (protocollo `TCP` con intervallo di porte `22`).
-   - Aggiungere regola del gruppo di sicurezza `TCP personalizzato` con intervallo di porte `8001 - 8008` (per interrogare gli endpoint delle metriche HTTP dal browser) e tipo di origine `ovunque` che permettono a tutti gli indirizzi IP di accedere all'istanza.
+   - Aggiungere regola del gruppo di sicurezza `TCP personalizzato` con intervallo di porte `8001 - 8008` (per interrogare gli endpoint delle metriche HTTP dal browser) e tipo di origine `ovunque` (`0.0.0.0/0`) che permettono a tutti gli indirizzi IP di accedere all'istanza.
    - Non c'è bisogno di aprire le porte UDP verso il mondo esterno siccome i nodi comunicheranno privatamente tra loro.
    - Lasciare le configurazioni di archiviazione esistenti.
 3. **Setup dell'Ambiente**: Connettersi via SSH all'istanza (dalla console AWS) ed installare Docker e Git sul terminale che si apre:
@@ -309,17 +309,19 @@ Dalla console AWS (sezione EC2 -> Istanze):
 - **Nome**: `Gossip-Node` (è possibile rinominarle in seguito come `Node-1`, `Node-2`, ecc.).
 - **AMI**: Scegliere **Amazon Linux 2023** o **Ubuntu**.
 - **Tipo**: Lasciare `t3.micro` (o `t2.micro`) con Key pair `vockey`.
-- **Security Group Unificato**: Oltre alla regola **TCP 22** (SSH) e **TCP 8001 - 8005** personalizzato, è imperativo aggiungere la regola **UDP personalizzato, porte `7001 - 7005`** in entrata, per permettere al traffico Gossip di attraversare le reti cloud. Impostare sempre tipo di origine `ovunque` e lasciare le configurazioni di archiviazione esistenti.
+- **Security Group Unificato**: Oltre alla regola **TCP 22** (SSH) e **TCP 8001 - 8005** personalizzato, è imperativo aggiungere la regola **UDP personalizzato, porte `7001 - 7005`** in entrata, per permettere al traffico Gossip di attraversare le reti cloud. Impostare sempre tipo di origine `ovunque` (`0.0.0.0/0`) e lasciare le configurazioni di archiviazione esistenti.
 
 #### 2. Preparazione (su tutte le 5 macchine)
-Tramite *EC2 Instance Connect*, aprire i 5 terminali. Su **ciascuno** di essi eseguire l'installazione, clonare il codice ed effettuare la build dell'immagine base:
+Dalla console, connettersi alle istanze e aprire i 5 terminali. Su **ciascuno** di essi eseguire l'installazione:
 ```bash
 sudo dnf update -y
 sudo dnf install git docker -y
 sudo systemctl start docker
 sudo usermod -aG docker ec2-user
 newgrp docker
-
+```
+poi clonare il codice ed effettuare la build dell'immagine base:
+```bash
 git clone https://github.com/JFS-13/gossip-project-SDCC.git
 cd gossip-project-SDCC
 sudo docker build -t gossip-agent:local .
@@ -361,6 +363,10 @@ Alla fine, per non consumare il budget del Learner Lab, arrestare i container in
 sudo docker stop gossip-node1
 ```
 Infine, dalla console AWS EC2, selezionare le 5 macchine, cliccare su **Stato dell'istanza** ed eseguire **Arresta istanza**.
+
+> **⚠️ ATTENZIONE SUI RIAVVII (AWS Learner Lab):** 
+> Quando si arrestano le istanze per non consumare budget e le si riaccendono in una sessione successiva, AWS riassegnerà **nuovi Indirizzi IP Pubblici** a tutte e 5 le macchine. 
+> Per riavviare il cluster successivamente sarà quindi necessario appuntarsi i nuovi IP dalla console, eliminare i container obsoleti sui terminali (`sudo docker rm -f gossip-nodeX`) e lanciare nuovamente i comandi `docker run` iniettando i nuovi indirizzi corretti.
 
 ### 5. Cambiare il Tipo di Aggregazione (CRDT)
 L'architettura supporta 5 diverse strategie matematiche (`average`, `sum`, `min`, `max`, `topk`). Per cambiare il calcolo effettuato dal cluster cloud:
