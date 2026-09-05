@@ -308,8 +308,8 @@ Dalla console AWS (sezione EC2 -> Istanze):
 - **Numero di istanze**: Impostare a **`5`** (per crearle in blocco).
 - **Nome**: `Gossip-Node` (è possibile rinominarle in seguito come `Node-1`, `Node-2`, ecc.).
 - **AMI**: Scegliere **Amazon Linux 2023** o **Ubuntu**.
-- **Tipo**: Lasciare `t3.micro` (`t2.micro`) con Key pair `vockey`.
-- **Security Group Unificato**: Oltre alla regola **TCP 22** (SSH) e **TCP 8001 - 8005** personalizzato, è imperativo aggiungere la regola **UDP personalizzato, porte `7001 - 7005`** in entrata, per permettere al traffico Gossip di attraversare le reti cloud. Impostare sempre tipo di origine `ovunque` e lasciare le configurazioni di archiviazzione esistenti.
+- **Tipo**: Lasciare `t3.micro` (o `t2.micro`) con Key pair `vockey`.
+- **Security Group Unificato**: Oltre alla regola **TCP 22** (SSH) e **TCP 8001 - 8005** personalizzato, è imperativo aggiungere la regola **UDP personalizzato, porte `7001 - 7005`** in entrata, per permettere al traffico Gossip di attraversare le reti cloud. Impostare sempre tipo di origine `ovunque` e lasciare le configurazioni di archiviazione esistenti.
 
 #### 2. Preparazione (su tutte le 5 macchine)
 Tramite *EC2 Instance Connect*, aprire i 5 terminali. Su **ciascuno** di essi eseguire l'installazione, clonare il codice ed effettuare la build dell'immagine base:
