@@ -382,19 +382,19 @@ L'architettura supporta 5 diverse strategie matematiche (`average`, `sum`, `min`
   sudo docker rm -f gossip-nodeX
   ```
 
-**Quindi, ad esempio, sul terminale di Node-1:**
-```bash
-sudo docker rm -f gossip-node1 
-
-sudo docker run -d --name gossip-node1 \
-  -p 8001:8001 -p 7001:7001/udp \
-  -v $(pwd)/configs:/app/configs:ro \
-  -e ADVERTISE_ADDR="<IP_PUBBLICO_NODE_1>" \
-  -e SEED_PEERS="<IP_PUBBLICO_NODE_2>:7002,<IP_PUBBLICO_NODE_3>:7003" \
-  -e AGGREGATION_TYPE="average" \
-  gossip-agent:local \
-  --config /app/configs/node1.yaml
-```
+    **Quindi, ad esempio, sul terminale di Node-1:**
+    ```bash
+    sudo docker rm -f gossip-node1 
+    
+    sudo docker run -d --name gossip-node1 \
+      -p 8001:8001 -p 7001:7001/udp \
+      -v $(pwd)/configs:/app/configs:ro \
+      -e ADVERTISE_ADDR="<IP_PUBBLICO_NODE_1>" \
+      -e SEED_PEERS="<IP_PUBBLICO_NODE_2>:7002,<IP_PUBBLICO_NODE_3>:7003" \
+      -e AGGREGATION_TYPE="average" \
+      gossip-agent:local \
+      --config /app/configs/node1.yaml
+    ```
 
 *Attenzione: Affinché il cluster converga in modo corretto, è imperativo che tutti i nodi della rete vengano riavviati con il medesimo `AGGREGATION_TYPE`.*
 
