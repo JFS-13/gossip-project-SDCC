@@ -328,16 +328,17 @@ sudo docker build -t gossip-agent:local .
 ```
 
 #### 3. Iniezione degli IP e Avvio
-Poiché in AWS gli IP Pubblici cambiano ad ogni avvio del Learner Lab, l'applicativo è stato costruito per accettare un *override* delle configurazioni YAML tramite Variabili d'Ambiente (`-e`). 
-*(Appuntarsi gli IP IPv4 Pubblici dalla console e sostituirli al posto di `<IP_PUBBLICO_NODE_X>` nei comandi seguenti).*
+In un cluster backend i nodi comunicano tramite la rete interna per motivi di sicurezza e performance, per questo si iniettano come variabili d'ambiente (`-e`) i rispettivi **Indirizzi IPv4 Privati** delle macchine (tipicamente nel formato `172.31.x.x`). Su AWS gli IP Privati **non cambiano mai** a seguito di uno Stop/Start dell'istanza (a differenza degli IP Pubblici), rendendo la configurazione del cluster permanente.
+
+*(Appuntarsi gli IP Privati delle macchine dalla console AWS e sostituirli al posto di `<IP_PRIVATO_NODE_X>` nei comandi seguenti).*
 
 **Sul terminale di Node-1:**
 ```bash
 sudo docker run -d --name gossip-node1 \
   -p 8001:8001 -p 7001:7001/udp \
   -v $(pwd)/configs:/app/configs:ro \
-  -e ADVERTISE_ADDR="<IP_PUBBLICO_NODE_1>" \
-  -e SEED_PEERS="<IP_PUBBLICO_NODE_2>:7002,<IP_PUBBLICO_NODE_3>:7003" \
+  -e ADVERTISE_ADDR="<IP_PRIVATO_NODE_1>" \
+  -e SEED_PEERS="<IP_PRIVATO_NODE_2>:7002,<IP_PRIVATO_NODE_3>:7003" \
   -e AGGREGATION_TYPE="topk" \
   gossip-agent:local --config /app/configs/node1.yaml
 ```
@@ -347,8 +348,8 @@ sudo docker run -d --name gossip-node1 \
 sudo docker run -d --name gossip-node2 \
   -p 8002:8002 -p 7002:7002/udp \
   -v $(pwd)/configs:/app/configs:ro \
-  -e ADVERTISE_ADDR="<IP_PUBBLICO_NODE_2>" \
-  -e SEED_PEERS="<IP_PUBBLICO_NODE_1>:7001,<IP_PUBBLICO_NODE_3>:7003" \
+  -e ADVERTISE_ADDR="<IP_PRIVATO_NODE_2>" \
+  -e SEED_PEERS="<IP_PRIVATO_NODE_1>:7001,<IP_PRIVATO_NODE_3>:7003" \
   -e AGGREGATION_TYPE="topk" \
   gossip-agent:local --config /app/configs/node2.yaml
 ```
@@ -356,7 +357,7 @@ sudo docker run -d --name gossip-node2 \
 *(Replicare in modo logico i comandi per i nodi 3, 4 e 5, avendo cura di modificare i nomi dei container `gossip-nodeX`, i port mapping `-p 800X:800X -p 700X:700X/udp`, la config `--config /app/configs/nodeX.yaml` ed incrociando correttamente la lista dei `SEED_PEERS`)*.
 
 #### 4. Verifica della Convergenza e Spegnimento Sicuro
-Visitando `http://<IP_PUBBLICO_NODE_X>:800X/metrics` sul proprio browser si potrà osservare che i nodi aggiornano la topologia (marcando `Alive` gli IP pubblici degli altri) e convergono alla stessa stima aggregata.
+Visitando `http://<IP_PUBBLICO_NODE_X>:800X/metrics` sul proprio browser si potrà osservare che i nodi aggiornano la topologia (marcando `Alive` gli IP privati degli altri) e convergono alla stessa stima aggregata.
 
 Alla fine, per non consumare il budget del Learner Lab, arrestare i container inviando il segnale di Graceful Leave:
 ```bash
@@ -364,19 +365,17 @@ sudo docker stop gossip-node1
 ```
 Infine, dalla console AWS EC2, selezionare le 5 macchine, cliccare su **Stato dell'istanza** ed eseguire **Arresta istanza**.
 
-> **⚠️ ATTENZIONE SUI RIAVVII (AWS Learner Lab):** 
-> Quando si arrestano le istanze per non consumare budget e le si riaccendono in una sessione successiva, AWS riassegnerà **nuovi Indirizzi IP Pubblici** a tutte e 5 le macchine. 
-> Per riavviare il cluster successivamente sarà quindi necessario appuntarsi i nuovi IP dalla console, eliminare i container obsoleti sui terminali (`sudo docker rm -f gossip-nodeX`) e lanciare nuovamente i comandi `docker run` iniettando i nuovi indirizzi corretti.
+> **⚠️ COMPORTAMENTO SUI RIAVVII (AWS Learner Lab):** 
+> Con l'uso degli IP Privati se si arrestano le istanze per non consumare budget e le si riaccendono in un secondo momento, **il cluster riprenderà a comunicare istantaneamente** senza dover modificare alcuna configurazione.
+> AWS assegnerà tuttavia dei **nuovi Indirizzi IP Pubblici**: questo non intacca minimamente il funzionamento interno del cluster, ma sarà semplicemente necessario ricordarsi di usare il *nuovo* IP Pubblico nella barra del browser del proprio PC per poter consultare le metriche (`http://<NUOVO_IP_PUBBLICO>:800X/metrics`).
 
 ### 5. Cambiare il Tipo di Aggregazione (CRDT)
 L'architettura supporta 5 diverse strategie matematiche (`average`, `sum`, `min`, `max`, `topk`). Per cambiare il calcolo effettuato dal cluster cloud:
 
-- **Se si usa l'Opzione A**: I file di configurazione fisici risiedono nella cartella `configs/` sull'istanza EC2. Invece di aprirli a mano uno ad uno, si può usare un comando di sostituzione rapida per aggiornare tutti gli 8 nodi contemporaneamente. Ad esempio, per passare dalla vecchia aggregazione `topk` alla nuova `average`:
+- **Se si usa l'Opzione A**: Grazie all'utilizzo delle variabili d'ambiente nel file Compose, non c'è alcun bisogno di modificare manualmente i file YAML. Per cambiare il tipo di aggregazione su tutti gli 8 nodi contemporaneamente, è sufficiente lanciare il cluster anteponendo la variabile desiderata al comando. Ad esempio, per passare ad `average`:
   ```bash
-  sed -i 's/aggregation_type: "topk"/aggregation_type: "average"/g' configs/*.yaml
+  AGGREGATION_TYPE="average" docker-compose up -d
   ```
-  Fatto ciò, si lancia di nuovo il comando `docker-compose up -d`: Docker rileverà automaticamente che i file sono cambiati e riavvierà i container applicando le nuove regole matematiche.
-
 - **Se si usa l'Opzione B**: È sufficiente modificare la variabile d'ambiente direttamente nel comando di avvio, sostituendo il flag `-e AGGREGATION_TYPE="topk"` con l'operazione desiderata. Poiché Docker non permette di creare due container con lo stesso nome, **prima di avviare il nuovo nodo** assicurarsi di distruggere il precedente eseguendo:
   ```bash
   sudo docker rm -f gossip-nodeX
@@ -389,8 +388,8 @@ L'architettura supporta 5 diverse strategie matematiche (`average`, `sum`, `min`
     sudo docker run -d --name gossip-node1 \
       -p 8001:8001 -p 7001:7001/udp \
       -v $(pwd)/configs:/app/configs:ro \
-      -e ADVERTISE_ADDR="<IP_PUBBLICO_NODE_1>" \
-      -e SEED_PEERS="<IP_PUBBLICO_NODE_2>:7002,<IP_PUBBLICO_NODE_3>:7003" \
+      -e ADVERTISE_ADDR="<IP_PRIVATO_NODE_1>" \
+      -e SEED_PEERS="<IP_PRIVATO_NODE_2>:7002,<IP_PRIVATO_NODE_3>:7003" \
       -e AGGREGATION_TYPE="average" \
       gossip-agent:local \
       --config /app/configs/node1.yaml

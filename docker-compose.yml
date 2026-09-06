@@ -5,6 +5,8 @@ x-node-base: &node-base
   build: .
   image: gossip-agent:local
   restart: unless-stopped
+  environment:
+    - AGGREGATION_TYPE=${AGGREGATION_TYPE:-}
   networks:
     - gossip-net
 
