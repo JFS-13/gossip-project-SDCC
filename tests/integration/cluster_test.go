@@ -116,16 +116,7 @@ func newTestNode(
 	}
 	mset := topology.NewManager(message.NodeID(id), addr, cfg, peers)
 
-	var agg aggregation.Aggregator
-	var err error
-	if aggType == "topk" {
-		agg = aggregation.NewTopK(3)
-	} else {
-		agg, err = aggregation.Factory(aggType)
-		if err != nil {
-			t.Fatalf("aggregazione non supportata: %v", err)
-		}
-	}
+	agg := aggregation.NewCompositeAggregator(aggType, 3)
 
 	state := core.NewEngineState(message.NodeID(id), aggType, initialValue)
 	agg.SetContribution(&state.Aggregation, message.NodeID(id), initialValue)

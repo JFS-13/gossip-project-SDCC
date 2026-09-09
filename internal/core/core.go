@@ -27,6 +27,12 @@ type Aggregator interface {
 	SetContribution(state *message.AggregationState, nodeID message.NodeID, value float64)
 }
 
+// MultiAggregator estende Aggregator per il calcolo simultaneo di tutte le funzioni CRDT.
+type MultiAggregator interface {
+	Aggregator
+	ComputeAll(state *message.AggregationState, aliveNodes map[message.NodeID]bool) message.AllResults
+}
+
 // MembershipProvider fornisce le informazioni relative ai peer noti al sistema.
 type MembershipProvider interface {
 	GetAlivePeers() []message.MembershipEntry
@@ -178,6 +184,12 @@ func (e *Engine) executeRound(ctx context.Context) {
 	}
 	estimate := e.aggregator.ComputeResult(&aggState, aliveNodes)
 	e.State.SetEstimate(estimate)
+
+	// Calcolo simultaneo di tutte le aggregazioni
+	if multi, ok := e.aggregator.(MultiAggregator); ok {
+		allResults := multi.ComputeAll(&aggState, aliveNodes)
+		e.State.SetAllEstimates(allResults)
+	}
 }
 
 // handleMessage gestisce la ricezione dei messaggi dal transport elaborando
@@ -209,6 +221,12 @@ func (e *Engine) handleMessage(ctx context.Context, payload []byte) error {
 	estimate := e.aggregator.ComputeResult(&aggState, aliveNodes)
 	e.State.SetEstimate(estimate)
 
+	// Calcolo simultaneo di tutte le aggregazioni
+	if multi, ok := e.aggregator.(MultiAggregator); ok {
+		allResults := multi.ComputeAll(&aggState, aliveNodes)
+		e.State.SetAllEstimates(allResults)
+	}
+
 	if changed {
 		e.logger.Printf("Round %d: Unito stato dal peer %s. Nuova stima: %f", msg.Round, msg.SenderID, estimate)
 	}
@@ -224,6 +242,11 @@ func (e *Engine) GetEstimate() (float64, int) {
 	estimate := e.State.GetEstimate()
 	knownNodes := e.membership.GetClusterSize()
 	return estimate, knownNodes
+}
+
+// GetAllEstimates restituisce i risultati di tutte le aggregazioni.
+func (e *Engine) GetAllEstimates() message.AllResults {
+	return e.State.GetAllEstimates()
 }
 
 // GetAliveNodeIDs restituisce la lista dei nodi correntemente in stato alive o suspect.

@@ -15,6 +15,7 @@ type EngineState struct {
 	AggregationType string
 	LocalValue      float64
 	Estimate        float64
+	AllEstimates    message.AllResults
 	Aggregation     message.AggregationState
 	mu              sync.RWMutex
 }
@@ -51,6 +52,7 @@ func (s *EngineState) UpdateLocalContribution(value float64) {
 		Value:   value,
 		Sum:     value,
 		Count:   1,
+		TopK:    []float64{value},
 		Epoch:   s.MyEpoch,
 		Version: version,
 	}
@@ -141,4 +143,23 @@ func (s *EngineState) IncrementRound() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.Round++
+}
+
+// GetAllEstimates restituisce una copia dei risultati di tutte le aggregazioni.
+func (s *EngineState) GetAllEstimates() message.AllResults {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := s.AllEstimates
+	if s.AllEstimates.TopK != nil {
+		result.TopK = make([]float64, len(s.AllEstimates.TopK))
+		copy(result.TopK, s.AllEstimates.TopK)
+	}
+	return result
+}
+
+// SetAllEstimates aggiorna i risultati di tutte le aggregazioni.
+func (s *EngineState) SetAllEstimates(results message.AllResults) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.AllEstimates = results
 }

@@ -35,6 +35,15 @@ type AggregationState struct {
 	Contributions map[NodeID]Contribution `json:"contributions"`
 }
 
+// AllResults contiene i risultati simultanei calcolati da tutte e 5 le funzioni di aggregazione CRDT.
+type AllResults struct {
+	Sum     float64   `json:"sum"`
+	Average float64   `json:"average"`
+	Min     float64   `json:"min"`
+	Max     float64   `json:"max"`
+	TopK    []float64 `json:"top_k"`
+}
+
 // EnsureContributions verifica ed eventualmente inizializza la mappa interna di stato.
 func (s *AggregationState) EnsureContributions() {
 	if s.Contributions == nil {

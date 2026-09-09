@@ -4,11 +4,14 @@ package telemetry
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"time"
+
+	"gossip-project/internal/message"
 )
 
 // MetricsProvider definisce l'interfaccia per estrarre le metriche dal motore gossip.
@@ -16,6 +19,7 @@ type MetricsProvider interface {
 	GetEstimate() (float64, int)
 	GetRound() uint64
 	GetEpoch() int64
+	GetAllEstimates() message.AllResults
 }
 
 // TelemetryServer definisce il server HTTP per gli endpoint operativi.
@@ -67,16 +71,20 @@ func (ts *TelemetryServer) handleHealth(w http.ResponseWriter, r *http.Request) 
 		ts.nodeID, time.Since(ts.startTime).Seconds())
 }
 
-// handleMetrics restituisce le metriche correnti del protocollo gossip.
+// handleMetrics restituisce le metriche correnti del protocollo gossip,
+// includendo i risultati simultanei di tutte e 5 le funzioni di aggregazione.
 func (ts *TelemetryServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	estimate, knownNodes := ts.provider.GetEstimate()
 	round := ts.provider.GetRound()
 	epoch := ts.provider.GetEpoch()
+	all := ts.provider.GetAllEstimates()
 
 	w.Header().Set("Content-Type", "application/json")
+	topKJSON, _ := json.Marshal(all.TopK)
 	fmt.Fprintf(w,
-		`{"node_id":%q,"aggregation":%q,"estimate":%.4f,"known_nodes":%d,"round":%d,"epoch":%d,"uptime_seconds":%.0f}`,
-		ts.nodeID, ts.aggType, estimate, knownNodes, round, epoch, time.Since(ts.startTime).Seconds())
+		`{"node_id":%q,"primary_aggregation":%q,"estimate":%.4f,"known_nodes":%d,"round":%d,"epoch":%d,"uptime_seconds":%.0f,"all_aggregations":{"sum":%.4f,"average":%.4f,"min":%.4f,"max":%.4f,"top_k":%s}}`,
+		ts.nodeID, ts.aggType, estimate, knownNodes, round, epoch, time.Since(ts.startTime).Seconds(),
+		all.Sum, all.Average, all.Min, all.Max, topKJSON)
 }
 
 // SetupLogger configura il logger strutturato slog con output formattato in JSON.

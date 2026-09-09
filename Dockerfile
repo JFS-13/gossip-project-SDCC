@@ -25,10 +25,15 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # ==========================================
 FROM alpine:latest
 
+# Installa iproute2 per il Traffic Control (tc) — simulazione latenza di rete
+RUN apk add --no-cache iproute2
+
 WORKDIR /app
 
-# Copia il binario compilato
+# Copia il binario compilato e lo script di avvio
 COPY --from=builder /gossip-agent /app/gossip-agent
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 # Porta gossip UDP
 EXPOSE 7001
@@ -36,5 +41,5 @@ EXPOSE 7001
 # Porta metrics HTTP (node_port + 1000)
 EXPOSE 8001
 
-ENTRYPOINT ["/app/gossip-agent"]
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["--config", "/app/configs/config.yaml"]

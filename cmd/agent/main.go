@@ -56,16 +56,8 @@ func main() {
 		cfg.SeedPeers,
 	)
 
-	// Inizializzazione dell'aggregatore specifico scelto in configurazione
-	var agg aggregation.Aggregator
-	if cfg.AggregationType == "topk" {
-		agg = aggregation.NewTopK(cfg.TopKSize)
-	} else {
-		agg, err = aggregation.Factory(cfg.AggregationType)
-		if err != nil {
-			log.Fatalf("aggregazione non supportata: %v", err)
-		}
-	}
+	// Inizializzazione dell'aggregatore composito: calcola simultaneamente tutte le funzioni CRDT
+	agg := aggregation.NewCompositeAggregator(cfg.AggregationType, cfg.TopKSize)
 
 	// Configurazione dello stato CRDT iniziale del nodo
 	engineState := core.NewEngineState(
@@ -74,16 +66,7 @@ func main() {
 		cfg.InitialValue,
 	)
 
-	if cfg.AggregationType == "topk" {
-		topKAgg := agg.(*aggregation.TopKAggregator)
-		topKAgg.SetTopKContribution(
-			&engineState.Aggregation,
-			message.NodeID(cfg.NodeID),
-			[]float64{cfg.InitialValue},
-		)
-	} else {
-		agg.SetContribution(&engineState.Aggregation, message.NodeID(cfg.NodeID), cfg.InitialValue)
-	}
+	agg.SetContribution(&engineState.Aggregation, message.NodeID(cfg.NodeID), cfg.InitialValue)
 
 	// Avvio del layer di Transport (UDP)
 	listenAddr := fmt.Sprintf("%s:%d", cfg.BindAddress, cfg.NodePort)
@@ -141,6 +124,7 @@ func main() {
 				return
 			case <-ticker.C:
 				estimate, knownNodes := eng.GetEstimate()
+				all := eng.GetAllEstimates()
 				slog.Info("stima corrente",
 					"node_id", cfg.NodeID,
 					"aggregation", cfg.AggregationType,
@@ -148,12 +132,14 @@ func main() {
 					"known_nodes", knownNodes,
 					"round", eng.GetRound(),
 				)
-				if cfg.AggregationType == "topk" {
-					topKAgg := agg.(*aggregation.TopKAggregator)
-					snap := eng.State.Snapshot()
-					topK := topKAgg.ComputeTopK(&snap, eng.GetAliveNodeIDs())
-					slog.Info("top-k elementi", "node_id", cfg.NodeID, "top_k", topK)
-				}
+				slog.Info("tutte le aggregazioni",
+					"node_id", cfg.NodeID,
+					"sum", fmt.Sprintf("%.4f", all.Sum),
+					"average", fmt.Sprintf("%.4f", all.Average),
+					"min", fmt.Sprintf("%.4f", all.Min),
+					"max", fmt.Sprintf("%.4f", all.Max),
+					"top_k", all.TopK,
+				)
 			}
 		}
 	}()

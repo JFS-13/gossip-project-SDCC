@@ -1,12 +1,14 @@
 version: '3.8'
 
-# Configurazione base condivisa da tutti i nodi
+x-env: &env
+  AGGREGATION_TYPE: ${AGGREGATION_TYPE:-}
+
 x-node-base: &node-base
   build: .
   image: gossip-agent:local
   restart: unless-stopped
-  environment:
-    - AGGREGATION_TYPE=${AGGREGATION_TYPE:-}
+  cap_add:
+    - NET_ADMIN
   networks:
     - gossip-net
 
@@ -19,6 +21,9 @@ services:
     command: ["--config", "/app/configs/node1.yaml"]
     ports:
       - "8001:8001"   # metrics HTTP
+    environment:
+      <<: *env
+      NETWORK_DELAY_MS: ${NODE1_DELAY:-${NETWORK_DELAY_MS:-0}}
 
   node2:
     <<: *node-base
@@ -30,6 +35,9 @@ services:
       - "8002:8002"   # metrics HTTP
     depends_on:
       - node1
+    environment:
+      <<: *env
+      NETWORK_DELAY_MS: ${NODE2_DELAY:-${NETWORK_DELAY_MS:-0}}
 
   node3:
     <<: *node-base
@@ -41,6 +49,9 @@ services:
       - "8003:8003"   # metrics HTTP
     depends_on:
       - node1
+    environment:
+      <<: *env
+      NETWORK_DELAY_MS: ${NODE3_DELAY:-${NETWORK_DELAY_MS:-0}}
 
   node4:
     <<: *node-base
@@ -52,6 +63,9 @@ services:
       - "8004:8004"   # metrics HTTP
     depends_on:
       - node1
+    environment:
+      <<: *env
+      NETWORK_DELAY_MS: ${NODE4_DELAY:-${NETWORK_DELAY_MS:-0}}
 
   node5:
     <<: *node-base
@@ -63,6 +77,9 @@ services:
       - "8005:8005"   # metrics HTTP
     depends_on:
       - node1
+    environment:
+      <<: *env
+      NETWORK_DELAY_MS: ${NODE5_DELAY:-${NETWORK_DELAY_MS:-0}}
 
   node6:
     <<: *node-base
@@ -74,6 +91,9 @@ services:
       - "8006:8006"   # metrics HTTP
     depends_on:
       - node1
+    environment:
+      <<: *env
+      NETWORK_DELAY_MS: ${NODE6_DELAY:-${NETWORK_DELAY_MS:-0}}
 
   node7:
     <<: *node-base
@@ -85,6 +105,9 @@ services:
       - "8007:8007"   # metrics HTTP
     depends_on:
       - node1
+    environment:
+      <<: *env
+      NETWORK_DELAY_MS: ${NODE7_DELAY:-${NETWORK_DELAY_MS:-0}}
 
   node8:
     <<: *node-base
@@ -96,6 +119,9 @@ services:
       - "8008:8008"   # metrics HTTP
     depends_on:
       - node1
+    environment:
+      <<: *env
+      NETWORK_DELAY_MS: ${NODE8_DELAY:-${NETWORK_DELAY_MS:-0}}
 
 networks:
   gossip-net:
