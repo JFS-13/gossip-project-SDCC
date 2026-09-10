@@ -88,6 +88,12 @@ func main() {
 		time.Duration(cfg.GossipIntervalMs)*time.Millisecond,
 		cfg.Fanout,
 	)
+
+	// Pre-calcola lo stato iniziale prima ancora del primo ciclo di background
+	aliveNodes := map[message.NodeID]bool{message.NodeID(cfg.NodeID): true}
+	engineState.SetAllEstimates(agg.ComputeAll(&engineState.Aggregation, aliveNodes))
+	engineState.SetEstimate(agg.ComputeResult(&engineState.Aggregation, aliveNodes))
+
 	eng.State = engineState
 
 	// Gestione dei segnali per una chiusura gracefully

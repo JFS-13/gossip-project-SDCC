@@ -197,10 +197,13 @@ Questa sezione illustra come collaudare manualmente o automaticamente la robuste
 1. **`fault_dashboard.ps1` (o `.sh`)**: Un pannello interattivo a riga di comando che elenca i container in esecuzione e permette di arrestarli (innescando un *Graceful Leave*) o riavviarli premendo semplicemente un tasto.
 2. **`auto_crash_test.sh`**: Uno script di Chaos Engineering automatizzato che esegue veri e propri *Hard Crash* casuali (kill dei container) sui nodi e ne verifica i tempi di riconvergenza automatica tramite il protocollo SWIM.
 3. **`demo_crash.sh`**: Una demo live e automatizzata progettata appositamente per mostrare lo stato del cluster, innescare un Hard Crash, attendere la convergenza del Failure Detector, e simulare il rejoin del nodo morto con un nuovo *Incarnation Number*.
-4. **`plot_convergence.go`**: Uno strumento che interroga il cluster concorrentemente e disegna dei grafici per visualizzare visivamente la curva di convergenza delle metriche Multi-CRDT rispetto al tempo.
+4. **`demo_latency.sh`**: Una demo live visiva per simulare un ambiente di rete con una forte latenza. Applica ritardi crescenti (fino a 10 secondi) in modo sfalsato ad ogni nodo, mostrando in tempo reale come i CRDT riescano comunque a garantire la convergenza matematica globale.
+5. **`plot_convergence.go`**: Uno strumento che interroga il cluster concorrentemente e disegna dei grafici per visualizzare visivamente la curva di convergenza delle metriche Multi-CRDT rispetto al tempo.
 
 ### Simulazione Latenza di Rete (Traffic Control)
 Il sistema è in grado di dimostrare la stabilità e la convergenza matematica anche in scenari con forte latenza di rete. Sfruttando le capacità del kernel Linux (tramite il modulo `tc qdisc netem`), i container possono ritardare artificialmente l'uscita di tutti i loro pacchetti UDP.
+
+Questo meccanismo è presente nello script **`entrypoint.sh`**, che viene eseguito automaticamente all'avvio di ogni container. Lo script intercetta le variabili d'ambiente fornite da Docker e, prima di avviare l'eseguibile Go, applica le regole di traffic control direttamente sull'interfaccia di rete (`eth0`) del container.
 
 Nel `docker-compose.yml`, il ritardo (espresso in millisecondi) parte da `0` di default ed è applicabile dinamicamente **direttamente da riga di comando**.
 
@@ -363,6 +366,7 @@ In un cluster backend i nodi comunicano tramite la rete interna per motivi di si
 **Sul terminale di Node-1:**
 ```bash
 sudo docker run -d --name gossip-node1 \
+  --cap-add=NET_ADMIN \
   -p 8001:8001 -p 7001:7001/udp \
   -v $(pwd)/configs:/app/configs:ro \
   -e ADVERTISE_ADDR="<IP_PRIVATO_NODE_1>" \
@@ -374,6 +378,7 @@ sudo docker run -d --name gossip-node1 \
 **Sul terminale di Node-2:**
 ```bash
 sudo docker run -d --name gossip-node2 \
+  --cap-add=NET_ADMIN \
   -p 8002:8002 -p 7002:7002/udp \
   -v $(pwd)/configs:/app/configs:ro \
   -e ADVERTISE_ADDR="<IP_PRIVATO_NODE_2>" \
@@ -414,6 +419,7 @@ L'architettura supporta 5 diverse strategie matematiche (`average`, `sum`, `min`
     sudo docker rm -f gossip-node1 
     
     sudo docker run -d --name gossip-node1 \
+      --cap-add=NET_ADMIN \
       -p 8001:8001 -p 7001:7001/udp \
       -v $(pwd)/configs:/app/configs:ro \
       -e ADVERTISE_ADDR="<IP_PRIVATO_NODE_1>" \
