@@ -284,7 +284,22 @@ Questa soluzione è ideale per un test rapido. Si utilizza una singola istanza f
    - Aggiungere regola del gruppo di sicurezza `TCP personalizzato` con intervallo di porte `8001 - 8008` (per interrogare gli endpoint delle metriche HTTP dal browser) e tipo di origine `ovunque` (`0.0.0.0/0`) che permettono a tutti gli indirizzi IP di accedere all'istanza.
    - Non c'è bisogno di aprire le porte UDP verso il mondo esterno siccome i nodi comunicheranno privatamente tra loro.
    - Lasciare le configurazioni di archiviazione esistenti.
-3. **Setup dell'Ambiente**: Connettersi via SSH all'istanza (dalla console AWS) ed installare Docker e Git sul terminale che si apre:
+3. **Connessione all'istanza**: È possibile connettersi all'istanza in due modi:
+   - **Tramite Browser**: Dalla console AWS, selezionare l'istanza e cliccare su **Connetti** -> **Connessione a un'istanza EC2**.
+   - **Tramite Client SSH**: 
+     1. Dal portale AWS Academy, cliccare su **AWS Details** e scaricare il file della chiave SSH (`labsuser.pem` o `vockey.pem`).
+     2. Aprire **Git Bash** nella cartella dove è stato salvato il file della chiave SSH.
+     3. Restringere i permessi del file chiave (operazione da fare una sola volta):
+        ```bash
+        chmod 400 "labsuser.pem"
+        ```
+     4. Connettersi copiando l'indirizzo DNS Pubblico dell'istanza dalla console AWS:
+        ```bash
+        ssh -i "labsuser.pem" ec2-user@<INDIRIZZO_DNS_PUBBLICO>
+        ```
+        *(Nota: al riavvio di un'istanza cloud, l'Indirizzo IP pubblico cambia, per cui sarà necessario aggiornare il comando SSH con il nuovo IP).*
+
+4. **Setup dell'Ambiente**: Nel terminale dell'istanza, installare Docker e Git:
    ```bash
    sudo dnf update -y
    sudo dnf install git docker -y
@@ -293,12 +308,12 @@ Questa soluzione è ideale per un test rapido. Si utilizza una singola istanza f
    sudo usermod -aG docker ec2-user
    newgrp docker
    ```
-4. **Installazione Docker Compose**:
+5. **Installazione Docker Compose**:
     ```bash
     sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
     sudo chmod +x /usr/local/bin/docker-compose
     ```
-5. **Avvio del Cluster**: Clonare il repository ed eseguire il deployment tramite Docker Compose:
+6. **Avvio del Cluster**: Clonare il repository ed eseguire il deployment tramite Docker Compose:
    ```bash
    git clone https://github.com/JFS-13/gossip-project-SDCC.git
    cd gossip-project-SDCC
@@ -306,7 +321,7 @@ Questa soluzione è ideale per un test rapido. Si utilizza una singola istanza f
    docker-compose up -d
    ```
    Questo avvierà istantaneamente tutti gli 8 nodi. Le metriche saranno visibili (ad esempio per il nodo 1) all'indirizzo `http://<IP-PUBBLICO-EC2>:8001/metrics`.
-6. **Spegnimento**: Per non prosciugare il budget disponibile:
+7. **Spegnimento**: Per non prosciugare il budget disponibile:
   1. Nel terminale eseguire `docker-compose down`, per cancellare i container liberando la memoria.
   2. Sulla dashboard di AWS EC2, selezionare l'istanza e fare **Stato dell'istanza -> Arresta istanza** (così non si perdono i dati e la prossima volta basterà riaccenderla). Cliccando su **Termina istanza** invece si cancella completamente l'istanza e bisognerà ricrearla al nuovo accesso.
   3. Tornare sulla scheda di Canvas (AWS Academy) e cliccare **End Lab**.
