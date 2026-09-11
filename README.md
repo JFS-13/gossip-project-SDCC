@@ -402,10 +402,12 @@ Infine, dalla console AWS EC2, selezionare le 5 macchine, cliccare su **Stato de
 > Con l'uso degli IP Privati se si arrestano le istanze per non consumare budget e le si riaccendono in un secondo momento, **il cluster riprenderà a comunicare istantaneamente** senza dover modificare alcuna configurazione.
 > AWS assegnerà tuttavia dei **nuovi Indirizzi IP Pubblici**: questo non intacca minimamente il funzionamento interno del cluster, ma sarà semplicemente necessario ricordarsi di usare il *nuovo* IP Pubblico nella barra del browser del proprio PC per poter consultare le metriche (`http://<NUOVO_IP_PUBBLICO>:800X/metrics`).
 
-### 5. Cambiare il Tipo di Aggregazione (CRDT)
-L'architettura supporta 5 diverse strategie matematiche (`average`, `sum`, `min`, `max`, `topk`). Per cambiare il calcolo effettuato dal cluster cloud:
+### 5. Cambiare l'Aggregazione Primaria (Multi-CRDT)
+Con l'architettura Multi-CRDT il cluster calcola **sempre e simultaneamente** tutte e 5 le aggregazioni matematiche (`average`, `sum`, `min`, `max`, `topk`), esponendole nell'oggetto JSON `all_aggregations` dell'API `/metrics`.
 
-- **Se si usa l'Opzione A**: Grazie all'utilizzo delle variabili d'ambiente nel file Compose, non c'è alcun bisogno di modificare manualmente i file YAML. Per cambiare il tipo di aggregazione su tutti gli 8 nodi contemporaneamente, è sufficiente lanciare il cluster anteponendo la variabile desiderata al comando. Ad esempio, per passare ad `average`:
+Tuttavia, è possibile definire quale di queste 5 debba essere considerata l'aggregazione "primaria" (quella esposta nel campo principale `estimate`). Per cambiare la metrica primaria:
+
+- **Se si usa l'Opzione A**: Grazie all'utilizzo delle variabili d'ambiente nel file Compose, non c'è alcun bisogno di modificare manualmente i file YAML. Per cambiare il tipo di aggregazione primaria su tutti gli 8 nodi contemporaneamente, è sufficiente lanciare il cluster anteponendo la variabile desiderata al comando. Ad esempio, per passare ad `average`:
   ```bash
   AGGREGATION_TYPE="average" docker-compose up -d
   ```
@@ -429,7 +431,7 @@ L'architettura supporta 5 diverse strategie matematiche (`average`, `sum`, `min`
       --config /app/configs/node1.yaml
     ```
 
-*Attenzione: Affinché il cluster converga in modo corretto, è imperativo che tutti i nodi della rete vengano riavviati con il medesimo `AGGREGATION_TYPE`.*
+*Attenzione: Affinché il cluster esponga correttamente un valore primario omogeneo, è buona norma che tutti i nodi della rete vengano riavviati con il medesimo `AGGREGATION_TYPE`.*
 
 ### 6. Prove di Collaudo in Cloud
 Con il cluster è operativo sulle macchine AWS, è possibile eseguire le medesime prove di stress illustrate nelle sezioni precedenti per verificarne il comportamento su una rete geografica:
