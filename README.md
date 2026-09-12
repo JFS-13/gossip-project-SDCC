@@ -195,10 +195,9 @@ go test ./... -v
 
 Questa sezione illustra come collaudare manualmente o automaticamente la robustezza del codice introducendo guasti nel cluster su Docker. Per facilitare queste operazioni, nella cartella `scripts/` sono forniti degli strumenti dedicati:
 1. **`fault_dashboard.ps1` (o `.sh`)**: Un pannello interattivo a riga di comando che elenca i container in esecuzione e permette di arrestarli (innescando un *Graceful Leave*) o riavviarli premendo semplicemente un tasto.
-2. **`auto_crash_test.sh`**: Uno script di Chaos Engineering automatizzato che esegue veri e propri *Hard Crash* casuali (kill dei container) sui nodi e ne verifica i tempi di riconvergenza automatica tramite il protocollo SWIM.
-3. **`demo_crash.sh`**: Una demo live e automatizzata progettata appositamente per mostrare lo stato del cluster, innescare un Hard Crash, attendere la convergenza del Failure Detector, e simulare il rejoin del nodo morto con un nuovo *Incarnation Number*.
-4. **`demo_latency.sh`**: Una demo live visiva per simulare un ambiente di rete con una forte latenza. Applica ritardi crescenti (fino a 10 secondi) in modo sfalsato ad ogni nodo, mostrando in tempo reale come i CRDT riescano comunque a garantire la convergenza matematica globale.
-5. **`plot_convergence.go`**: Uno strumento che interroga il cluster concorrentemente e disegna dei grafici per visualizzare visivamente la curva di convergenza delle metriche Multi-CRDT rispetto al tempo.
+2. **`demo_crash.sh`**: Una demo live e automatizzata progettata appositamente per mostrare lo stato del cluster, innescare un Hard Crash, attendere la convergenza del Failure Detector, e simulare il rejoin del nodo morto con un nuovo *Incarnation Number*.
+3. **`demo_latency.sh`**: Una demo live visiva per simulare un ambiente di rete con una forte latenza. Applica ritardi crescenti (fino a 10 secondi) in modo sfalsato ad ogni nodo, mostrando in tempo reale come i CRDT riescano comunque a garantire la convergenza matematica globale.
+4. **`plot_convergence.go`**: Uno strumento che interroga il cluster concorrentemente e disegna dei grafici per visualizzare visivamente la curva di convergenza delle metriche Multi-CRDT rispetto al tempo.
 
 ### Simulazione Latenza di Rete (Traffic Control)
 Il sistema è in grado di dimostrare la stabilità e la convergenza matematica anche in scenari con forte latenza di rete. Sfruttando le capacità del kernel Linux (tramite il modulo `tc qdisc netem`), i container possono ritardare artificialmente l'uscita di tutti i loro pacchetti UDP.
