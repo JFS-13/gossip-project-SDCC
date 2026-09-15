@@ -92,7 +92,7 @@ clear
 echo ""
 echo -e "${BOLD}${CYAN}================================================================${NC}"
 echo -e "${BOLD}${CYAN}      DEMO LIVE - Gossip-Based Distributed Aggregation          ${NC}"
-echo -e "${BOLD}${CYAN}      Protocollo Epidemico con CRDT e Failure Detection         ${NC}"
+echo -e "${BOLD}${CYAN}      Protocollo Gossip con CRDT e Failure Detection            ${NC}"
 echo -e "${BOLD}${CYAN}================================================================${NC}"
 echo ""
 echo -e "  Nodi: ${BOLD}${NUM_NODES}${NC} | Host: ${BOLD}${HOST}${NC} | Porte: ${BOLD}${BASE_PORT}-$((BASE_PORT + NUM_NODES - 1))${NC}"
@@ -159,5 +159,5 @@ echo ""
 query_all_nodes
 
 separator
-echo -e "${BOLD}${GREEN}[OK] Demo completata con successo!${NC}"
+echo -e "${BOLD}${GREEN}[OK] Demo Crash completata!${NC}"
 echo ""

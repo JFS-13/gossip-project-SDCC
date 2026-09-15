@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# Script di Demo per Latenza di Rete
+# Script per Latenza di Rete
 # ==============================================================================
 # Dimostra la convergenza asincrona del protocollo Gossip applicando
 # ritardi di rete crescenti su ogni nodo.
@@ -50,9 +50,9 @@ query_node() {
 
     # Colora i nodi lenti di giallo se la somma non ha ancora raggiunto 360 (la somma totale vera)
     if [ "$sum" != "360.0000" ]; then
-        echo -e "  ${YELLOW}[⏳] $node_id (${delay_ms}ms) | Ritardo in corso | known: $known | sum: $sum  avg: $avg  topk: $top_k${NC}"
+        echo -e "  ${YELLOW}[WAIT] $node_id (${delay_ms}ms) | Ritardo in corso | known: $known | sum: $sum  avg: $avg  topk: $top_k${NC}"
     else
-        echo -e "  ${GREEN}[✅] $node_id (${delay_ms}ms) | Convergenza OK | known: $known | sum: $sum  avg: $avg  topk: $top_k${NC}"
+        echo -e "  ${GREEN}[OK] $node_id (${delay_ms}ms) | Convergenza OK | known: $known | sum: $sum  avg: $avg  topk: $top_k${NC}"
     fi
 }
 
@@ -89,5 +89,5 @@ done
 
 echo ""
 echo -e "${BOLD}${GREEN}================================================================${NC}"
-echo -e "${BOLD}${GREEN}  Latenza assorbita! Il CRDT ha garantito la convergenza!       ${NC}"
+echo -e "${BOLD}${GREEN}  Convergenza raggiunta!                                        ${NC}"
 echo -e "${BOLD}${GREEN}================================================================${NC}"

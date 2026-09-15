@@ -17,7 +17,10 @@ import (
 	"gossip-project/internal/transport"
 )
 
-// InMemoryBus gestisce il recapito dei messaggi in-memory tra i nodi di test.
+// InMemoryBus funge da Virtual Switch (Mock) per il layer di trasporto UDP.
+// Permette di eseguire test di integrazione end-to-end isolati, senza occupare porte di rete reali.
+// Implementa primitive di Fault Injection (Block/Unblock) per simulare
+// partizioni di rete a livello di singolo nodo.
 type InMemoryBus struct {
 	mu       sync.RWMutex
 	handlers map[string]transport.MessageHandler
@@ -46,6 +49,8 @@ func (b *InMemoryBus) Send(ctx context.Context, destAddr string, payload []byte)
 	if !exists || isBlocked {
 		return nil
 	}
+	// Esegue una Deep Copy del payload prima di passarlo alla goroutine,
+	// per non rischiare una Data Race tra il sender e il receiver.
 	payloadCopy := make([]byte, len(payload))
 	copy(payloadCopy, payload)
 	go handler(ctx, payloadCopy)
@@ -151,6 +156,15 @@ func (n *TestNode) Start(t *testing.T) context.CancelFunc {
 	return cancel
 }
 
+// Vengono eseguiti i test di convergenza di rete esclusivamente per 'Average' e 'Sum',
+// in quanto il CompositeAggregator incapsula tutte e 5 le metriche all'interno dello stesso datagramma UDP.
+// I test specifici per Min, Max e Top-K risiedono invece a livello unitario in
+//`tests/aggregation/aggregation_test.go` per evitare ridondanza nei test di integrazione.
+
+// TestClusterConvergenza_Average verifica il raggiungimento del consenso globale.
+// Nonostante il nome indichi l'Average come metrica "primaria" da interrogare,
+// l'engine sottostante istanzia il CompositeAggregator (Multi-CRDT), calcolando
+// simultaneamente tutte le 5 metriche.
 func TestClusterConvergenza_Average(t *testing.T) {
 	bus := NewInMemoryBus()
 	peers := []string{"node1:7001", "node2:7002", "node3:7003"}
@@ -211,6 +225,10 @@ func TestClusterConvergenza_Sum(t *testing.T) {
 	}
 }
 
+// TestRobustezza_CrashNodo simula l'isolamento di un nodo (Crash).
+// Blocca il traffico verso un nodo e verifica che il Failure Detector degli
+// altri peer lo marchi come Dead, estromettendo a runtime il suo contributo
+// matematico dalle stime aggregate senza fermare il sistema (Fault Tolerance).
 func TestRobustezza_CrashNodo(t *testing.T) {
 	bus := NewInMemoryBus()
 	peers := []string{"node1:7001", "node2:7002", "node3:7003"}
@@ -248,6 +266,10 @@ func TestRobustezza_CrashNodo(t *testing.T) {
 	}
 }
 
+// TestRobustezza_CrashERestart verifica il meccanismo di Stateless Rejoin.
+// Se un nodo crasha perdendo la propria memoria, al riavvio genera un nuovo
+// Incarnation Number basato sul timestamp.
+// La rete accetta il nodo "resuscitato", invalidando lo stato Dead precedente.
 func TestRobustezza_CrashERestart(t *testing.T) {
 	bus := NewInMemoryBus()
 	peers := []string{"node1:7001", "node2:7002", "node3:7003"}
@@ -289,6 +311,9 @@ func TestRobustezza_CrashERestart(t *testing.T) {
 	}
 }
 
+// TestRobustezza_PartizioneRete simula lo Split-Brain e il conseguente Auto-Healing.
+// Un nodo viene temporaneamente isolato (Partizione) e successivamente ricollegato.
+// I ping stocastici verso i Seed Peers garantiscono la riconnessione e la successiva riconvergenza.
 func TestRobustezza_PartizioneRete(t *testing.T) {
 	bus := NewInMemoryBus()
 	peers := []string{"node1:7001", "node2:7002", "node3:7003"}
@@ -326,6 +351,11 @@ func TestRobustezza_PartizioneRete(t *testing.T) {
 	}
 }
 
+// TestRobustezza_MessaggiDuplicati attesta l'Idempotenza delle strutture CRDT.
+// Viene iniettato artificialmente un pacchetto clonato (Replay Attack / UDP Duplication).
+// Poiché il Join Semilattice è matematicamente commutativo e idempotente, il
+// nodo ricevitore ignora lo stato duplicato (nessun double-counting) e la stima
+// rimane inalterata e corretta.
 func TestRobustezza_MessaggiDuplicati(t *testing.T) {
 	bus := NewInMemoryBus()
 	peers := []string{"node1:7001", "node2:7002"}

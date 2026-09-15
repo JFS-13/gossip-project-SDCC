@@ -1,11 +1,6 @@
 # ========================================================
 # GOSSIP PROTOCOL - FAULT INJECTION DASHBOARD
 # ========================================================
-# NOTA: Le opzioni di Network Partition (disconnect/connect) sono state rimosse 
-# in quanto la rimozione dell'interfaccia di rete in Docker manda in stato "sordo" 
-# i socket UDP (stateless) in ascolto universale su 0.0.0.0.
-# Per simulare correttamente fault in questo progetto UDP, usa le opzioni CRASH e START,
-# che forzano il demone a ricreare i socket in modo pulito.
 
 while ($true) {
     Clear-Host

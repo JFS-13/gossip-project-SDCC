@@ -1,10 +1,6 @@
 // Implementa un tool a riga di comando che interroga periodicamente
 // gli endpoint /metrics dei nodi gossip e genera grafici di convergenza statici (PNG).
 //
-// Utilizzo:
-//
-//	go run scripts/plot_convergence.go [flag]
-//
 // Flags:
 //
 //	-auto       Avvia e spegne automaticamente docker-compose (default: false)
@@ -144,12 +140,9 @@ func main() {
 						}
 					}(i)
 				}
-				// Emettiamo un log raggruppato ogni tanto per non intasare
 				if int(elapsed*10)%10 == 0 {
 					log.Printf("  [DEBUG] t=%.1fs", elapsed)
 				}
-				// Non aspettiamo le goroutine qui per non bloccare il tick successivo,
-				// il client ha già il timeout configurato.
 			}
 		}
 	}()
